@@ -26,4 +26,4 @@ Respond in a poetic tone, combining mystical symbolism and emotional depth. Make
         temperature=0.9
     )
 
-    return response.choices[0].message.content.strip()
+    return response.choices[0].message.content

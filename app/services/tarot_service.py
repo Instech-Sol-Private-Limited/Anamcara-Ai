@@ -1,4 +1,3 @@
-
 import random
 import json
 from app.services.gpt_handler import generate_poetic_summary
@@ -6,26 +5,35 @@ from app.services.gpt_handler import generate_poetic_summary
 with open("app/data/tarot_cards(1).json", "r", encoding="utf-8") as f:
     cards_data = json.load(f)
 
-
+# Mapping dream keywords to cards
 dream_keyword_mapping = {
     "water": ["The Moon", "Temperance"],
     "flying": ["The Fool", "The Star"],
     "darkness": ["The Devil", "Death"],
 }
 
+# Updated spread positions to match frontend
 spread_positions = {
-    "single": ["Insight"],
+    "single": ["Guidance"],
     "three": ["Past", "Present", "Future"],
-    "relationship": ["You", "Partner", "Challenge"]
+    "situation": ["Situation", "Action", "Outcome"],
+    "relationship": ["Your Energy", "Their Energy", "Connection"],
+    "celtic": [
+        "Present", "Challenge", "Past", "Future", "Crown",
+        "Foundation", "Your Approach", "External Influences",
+        "Hopes & Fears", "Outcome"
+    ]
 }
 
-def generate_spread_with_interpretation(name, spread_type, dream=None):
-    positions = spread_positions.get(spread_type, ["Insight"])
+# Temporary in-memory storage (use DB in production)
+readings_storage = {}
+
+def generate_spread(name, spread_type):
+    positions = spread_positions.get(spread_type, ["Guidance"])
     drawn_cards = random.sample(cards_data, len(positions))
 
     cards_output = []
     interpretations = []
-    keywords_matched = []
 
     for i, pos in enumerate(positions):
         card = drawn_cards[i]
@@ -37,12 +45,20 @@ def generate_spread_with_interpretation(name, spread_type, dream=None):
             "orientation": orientation,
             "meaning": meaning
         })
-        interpretations.append(f"{name}, for '{pos}', you drew '{card['name']}' ({orientation.title()}): {meaning}")
+        interpretations.append(f"{name}, in the '{pos}' position, you drew '{card['name']}' ({orientation.title()}): {meaning}")
 
-        if dream:
+    return {
+        "cards": cards_output,
+        "interpretations": interpretations
+    }
+
+def generate_summary(name, cards_output, dream=None):
+    keywords_matched = []
+    if dream:
+        for card in cards_output:
             for keyword, related_cards in dream_keyword_mapping.items():
                 if keyword in dream.lower() and card["name"] in related_cards:
-                    keywords_matched.append((keyword, card["name"], meaning))
+                    keywords_matched.append((keyword, card["name"], card["meaning"]))
 
     dream_link = None
     if keywords_matched:
@@ -52,7 +68,6 @@ def generate_spread_with_interpretation(name, spread_type, dream=None):
     summary = generate_poetic_summary(name=name, cards=cards_output, dream_link=dream_link)
     return {
         "cards": cards_output,
-        "interpretations": interpretations,
         "dream_link": dream_link,
         "summary": summary
     }
