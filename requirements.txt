@@ -1,6 +1,18 @@
 fastapi==0.116.1
 uvicorn[standard]
-motor==3.7.1
+# motor==3.7.1
+supabase
+postgrest
+pytz
+httpx
+# Optional: For better async performance
+asyncio
+
+# Optional: For JSON handling
+python-json-logger
+
+# Optional: For better error handling and logging
+rich
 openai==1.99.1
 python-dotenv==1.0.1
 spacy

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from app.routers.persona_routes import router as PersonaRouter
 from app.routers.chat_routes import router as ChatRouter
 from app.routers.matchmaking_routes import router as MatchRouter
-from database.mongodb import close_db, connect_db
+from database.supabase_db import close_db, connect_db
 from scheduler_instance import scheduler
 import logging
 
@@ -29,16 +29,82 @@ app.include_router(PersonaRouter, prefix="/api/persona")
 app.include_router(ChatRouter, prefix="/api/chat")
 app.include_router(MatchRouter, prefix="/api/match")
 
+
 @app.on_event("startup")
 async def startup():
-    await connect_db()
-
-    scheduler.start()
+    """Initialize database and scheduler on startup"""
+    try:
+        # Initialize Supabase client
+        connect_db()
+        print("✅ Supabase client initialized")
+        
+        # Start the scheduler
+        scheduler.start()
+        print("✅ Scheduler started")
+        
+        print("🚀 DESTINY AI SoulMate API started successfully!")
+        
+    except Exception as e:
+        print(f"❌ Error during startup: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown():
-    await close_db()
-    scheduler.shutdown()
+    """Clean up resources on shutdown"""
+    try:
+        # Close database connection
+        close_db()
+        print("✅ Database connection closed")
+        
+        # Shutdown scheduler
+        scheduler.shutdown()
+        print("✅ Scheduler shut down")
+        
+        print("👋 DESTINY AI SoulMate API shut down gracefully")
+        
+    except Exception as e:
+        print(f"❌ Error during shutdown: {e}")
+
+@app.get("/health")
+async def health_check():
+    """Detailed health check endpoint"""
+    try:
+        from database.supabase_db import get_client
+        
+        # Test database connection
+        client = get_client()
+        result = client.table("personas").select("count", count="exact").limit(1).execute()
+        
+        # Test scheduler
+        scheduler_status = "running" if scheduler.running else "stopped"
+        job_count = len(scheduler.get_jobs())
+        
+        return {
+            "status": "healthy",
+            "database": {
+                "status": "connected",
+                "type": "Supabase"
+            },
+            "scheduler": {
+                "status": scheduler_status,
+                "job_count": job_count
+            },
+            "timestamp": "2025-01-01T00:00:00Z"  # This would be actual timestamp
+        }
+        
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "database": {
+                "status": "error",
+                "type": "Supabase"
+            },
+            "scheduler": {
+                "status": "unknown",
+                "job_count": 0
+            }
+        }
 
 @app.get("/")
 async def root():

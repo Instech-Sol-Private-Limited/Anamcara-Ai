@@ -1,6 +1,9 @@
+# models/schemas.py
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+import uuid
+from typing import List
 
 class PersonalityTrait(BaseModel):
     name: str
@@ -20,20 +23,16 @@ class PersonaResponse(BaseModel):
     user_id: str
     created_at: datetime
     thread_id: str
+    last_interaction: Optional[datetime] = None
     
 class ChatMessageEntry(BaseModel):
+    id: Optional[str] = None
+    thread_id: str
+    persona_id: str
+    user_id: str
     sender: str  # "user" or "ai"
     message: str
     timestamp: datetime
-
-class ChatThread(BaseModel):
-    thread_id: str
-    persona_id: str
-    messages: List[ChatMessageEntry]
-
-class UserChatDocument(BaseModel):
-    user_id: str
-    threads: List[ChatThread]
 
 class ChatMessage(BaseModel):
     message: str
@@ -58,14 +57,22 @@ class MoodResponse(BaseModel):
 
 class UserFormData(BaseModel):
     user_id: str
-    kind_connection: List[str]  # So… what kind of connection are you hoping to find here?
-    social_energy_feel_most: List[str]    # When it comes to social energy, which feels most like you?
-    favorite_conversations_light_up: List[str]  # What kind of conversations make you light up?
-    happiest_hobbies: List[str]  # Which activities or hobbies make you happiest?
-    top_must_haves_to_match_you: List[str]    # If you had to name your top 3 must-haves in someone, what would they be?
-    deal_breakers: List[str]     # And on the flip side… what’s a deal-breaker for you?
-    self_words: List[str]        # Which words feel like “you” the most?
-    click_best_with: List[str]         # You usually click best with
-    care_language: List[str]           # When someone cares about you, how do you like them to show it?
-    conflict_style_handle: List[str]          # If you and someone disagree, how do you usually handle it?
-    non_negotiable_friend: List[str]          # Finally… what’s non-negotiable for you in a friend or partner?
+    kind_connection: List[str] = Field(default_factory=list)
+    social_energy_feel_most: List[str] = Field(default_factory=list)
+    favorite_conversations_light_up: List[str] = Field(default_factory=list)
+    happiest_hobbies: List[str] = Field(default_factory=list)
+    top_must_haves_to_match_you: List[str] = Field(default_factory=list)
+    deal_breakers: List[str] = Field(default_factory=list)
+    self_words: List[str] = Field(default_factory=list)
+    click_best_with: List[str] = Field(default_factory=list)
+    care_language: List[str] = Field(default_factory=list)
+    conflict_style_handle: List[str] = Field(default_factory=list)
+    non_negotiable_friend: List[str] = Field(default_factory=list)
+
+class DailyMessage(BaseModel):
+    id: Optional[str] = None
+    persona_id: str
+    message: str
+    type: str = "daily_greeting"
+    delivered: bool = False
+    timestamp: datetime
