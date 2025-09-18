@@ -1,177 +1,327 @@
-# from apscheduler.triggers.cron import CronTrigger
-# from datetime import datetime
-# from services.openai_service import generate_chat_response
-# from utils.prompt_generation import generate_personality_prompt
-# from bson import ObjectId
-# import pytz
-# from scheduler_instance import scheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime, timedelta
+from app.services.openai_service import generate_chat_response
+from utils.prompt_generation import generate_personality_prompt
+import pytz
+from scheduler_instance import scheduler
+from database.supabase_db import get_client
 
-# async def schedule_daily_greeting(persona_id: str):
-#     # Set timezone to Pakistan Standard Time (PST)
-#     pakistan_tz = pytz.timezone('Asia/Karachi')
+# Mood check-in scheduler that runs every hour to check for inactive personas
+async def start_mood_checkin_scheduler():
+    """Start the mood check-in scheduler that runs every hour"""
+    pakistan_tz = pytz.timezone('Asia/Karachi')
     
-#     # Schedule for 3:42 PM Pakistan time for testing
-#     scheduler.add_job(
-#         send_daily_greeting, 
-#         CronTrigger(hour=16, minute=31, timezone=pakistan_tz), 
-#         args=[persona_id], 
-#         id=f"daily_greeting_{persona_id}", 
-#         replace_existing=True
-#     )
-#     print(f"Scheduled daily greeting for persona {persona_id} at 3:42 PM Pakistan time")
+    # Schedule mood check to run every hour
+    scheduler.add_job(
+        check_personas_for_mood_greeting,
+        CronTrigger(minute=0, timezone=pakistan_tz),  # Run at the start of every hour
+        id="mood_checkin_scanner",
+        replace_existing=True
+    )
+    print("Mood check-in scanner scheduled to run every hour")
 
-# async def send_daily_greeting(persona_id: str):
-#     try:
-#         # Import and ensure db connection
-#         from database.supabase_db import ensure_db_connection
+async def check_personas_for_mood_greeting():
+    """Check all personas and send mood greetings to those inactive for 12+ hours"""
+    try:
+        client = get_client()
+        current_time = datetime.utcnow()
+        twelve_hours_ago = current_time - timedelta(hours=12)
         
-#         db = await ensure_db_connection()
-#         if db is None:
-#             print("Database connection is not available")
-#             return
-            
-#         # Get persona details
-#         persona = await db.personas.find_one({"_id": ObjectId(persona_id)})
-#         if not persona:
-#             print(f"Persona {persona_id} not found")
-#             return
-
-#         # Get chat history for this persona and thread
-#         user_chat = await db.chats.find_one({"user_id": persona["user_id"]})
-#         chat_history = []
+        print(f"Checking personas for mood greetings at {current_time}")
         
-#         if user_chat:
-#             # Find the specific thread for this persona
-#             for thread in user_chat.get("threads", []):
-#                 if thread["thread_id"] == persona["thread_id"]:
-#                     # Get recent chat history (last 10 messages)
-#                     recent_messages = thread["messages"][-10:] if len(thread["messages"]) > 10 else thread["messages"]
-                    
-#                     # Convert to OpenAI format
-#                     for msg in recent_messages:
-#                         role = "user" if msg["sender"] == "user" else "assistant"
-#                         chat_history.append({
-#                             "role": role,
-#                             "content": msg["message"]
-#                         })
-#                     break
-
-#         # Create context-aware prompt based on chat history
-#         if chat_history:
-#             context_prompt = f"""
-#             Based on our previous conversations, generate a warm, caring daily greeting message. 
-#             Consider the context of our past interactions and make it personal and meaningful.
-#             Keep it brief but heartfelt. Make it feel like a natural continuation of our relationship.
-            
-#             Recent conversation context: You are {persona['name']}, a {persona['gender']} with these traits: {', '.join(persona['personality_traits'])}.
-#             """
-#         else:
-#             context_prompt = f"""
-#             Generate a warm, caring daily greeting message as {persona['name']}, a {persona['gender']} with these personality traits: {', '.join(persona['personality_traits'])}.
-#             This is one of our first interactions, so make it welcoming and introduce yourself naturally.
-#             Keep it brief but personal and loving.
-#             """
-
-#         # Add the greeting prompt to chat history
-#         messages_for_ai = chat_history + [{"role": "user", "content": context_prompt}]
+        # Get all personas with last_interaction older than 12 hours or null
+        # No joins with users table - we'll check preferences separately
+        personas_result = client.table("personas").select("*").or_(
+            f"last_interaction.lt.{twelve_hours_ago.isoformat()},last_interaction.is.null"
+        ).execute()
         
-#         # Generate the greeting message
-#         greeting_message = await generate_chat_response(messages_for_ai, persona)
+        if not personas_result.data:
+            print("No personas found needing mood check-in")
+            return
+        
+        print(f"Found {len(personas_result.data)} personas needing mood check-in")
+        
+        # Check each persona's user preference separately
+        eligible_personas = []
+        for persona in personas_result.data:
+            try:
+                # Check if user has mood check-ins enabled
+                user_enabled = await check_user_mood_preference(persona["user_id"])
+                if user_enabled:
+                    eligible_personas.append(persona)
+                else:
+                    print(f"Skipping persona {persona.get('name', 'Unknown')} - user has disabled mood check-ins")
+            except Exception as e:
+                print(f"Error checking preference for persona {persona.get('id', 'unknown')}: {str(e)}")
+                # Default to enabled if we can't check preference
+                eligible_personas.append(persona)
+        
+        if not eligible_personas:
+            print("No eligible personas found (all users have disabled mood check-ins)")
+            return
+        
+        print(f"Found {len(eligible_personas)} eligible personas for mood check-in")
+        
+        for persona in eligible_personas:
+            try:
+                # Check if we already sent a mood greeting today
+                today_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                mood_messages_today = client.table("mood_messages").select("*").eq(
+                    "persona_id", persona["id"]
+                ).gte("timestamp", today_start.isoformat()).execute()
+                
+                if mood_messages_today.data:
+                    print(f"Already sent mood greeting today for persona {persona.get('name', 'Unknown')} ({persona['id']})")
+                    continue
+                
+                await send_mood_greeting(persona)
+                print(f"Sent mood greeting to {persona.get('name', 'Unknown')} ({persona['id']})")
+                
+            except Exception as e:
+                print(f"Error processing persona {persona.get('id', 'unknown')}: {str(e)}")
+                
+    except Exception as e:
+        print(f"Error in mood check scanner: {str(e)}")
 
-#         # Store the daily message in daily_messages collection
-#         await db.daily_messages.insert_one({
-#             "persona_id": persona_id,
-#             "thread_id": persona["thread_id"],
-#             "message": greeting_message,
-#             "type": "daily_greeting",
-#             "timestamp": datetime.utcnow(),
-#             "delivered": False,
-#             "user_id": persona["user_id"]
-#         })
+async def send_mood_greeting(persona):
+    """Send a mood check-in greeting to a specific persona"""
+    try:
+        client = get_client()
+        current_time = datetime.utcnow()
+        
+        # Get recent chat history for context (last 5 messages)
+        chat_history_result = client.table("chat_messages").select("*").eq(
+            "persona_id", persona["id"]
+        ).order("timestamp", desc=True).limit(5).execute()
+        
+        # Prepare chat history for AI (reverse order for chronological)
+        messages = []
+        if chat_history_result.data:
+            # Reverse to get chronological order
+            for msg in reversed(chat_history_result.data):
+                role = "user" if msg["sender"] == "user" else "assistant"
+                messages.append({"role": role, "content": msg["message"]})
+        
+        # Create mood check-in prompt
+        mood_prompt = create_mood_checkin_prompt(persona, messages)
+        
+        # Add the mood check prompt to chat history
+        messages_for_ai = messages + [{"role": "user", "content": mood_prompt}]
+        
+        # Generate the mood greeting message
+        greeting_message = await generate_mood_response(messages_for_ai, persona)
+        
+        # Store the mood message in mood_messages table
+        mood_message_data = {
+            "persona_id": persona["id"],
+            "user_id": persona["user_id"],
+            "message": greeting_message,
+            "type": "mood_checkin",
+            "timestamp": current_time.isoformat(),
+            "delivered": False
+        }
+        
+        client.table("mood_messages").insert(mood_message_data).execute()
+        
+        # Also add to chat messages for continuity
+        chat_message_data = {
+            "thread_id": persona["thread_id"],
+            "persona_id": persona["id"],
+            "user_id": persona["user_id"],
+            "sender": "ai",
+            "message": greeting_message,
+            "timestamp": current_time.isoformat()
+        }
+        
+        client.table("chat_messages").insert(chat_message_data).execute()
+        
+        print(f"Mood greeting sent for persona {persona.get('name', 'Unknown')} ({persona['id']})")
+        print(f"Message: {greeting_message}")
+        
+    except Exception as e:
+        print(f"Error sending mood greeting for persona {persona.get('id', 'unknown')}: {str(e)}")
 
-#         # Add the greeting to the chat thread
-#         greeting_entry = {
-#             "sender": "ai",
-#             "message": greeting_message,
-#             "timestamp": datetime.utcnow()
-#         }
-
-#         # Update or create chat thread with the greeting
-#         if user_chat:
-#             # Find and update the existing thread
-#             thread_found = False
-#             for thread in user_chat["threads"]:
-#                 if thread["thread_id"] == persona["thread_id"]:
-#                     thread["messages"].append(greeting_entry)
-#                     thread_found = True
-#                     break
-            
-#             if thread_found:
-#                 await db.chats.replace_one({"_id": user_chat["_id"]}, user_chat)
-#             else:
-#                 # Create new thread if not found
-#                 new_thread = {
-#                     "thread_id": persona["thread_id"],
-#                     "persona_id": persona_id,
-#                     "messages": [greeting_entry]
-#                 }
-#                 await db.chats.update_one(
-#                     {"user_id": persona["user_id"]},
-#                     {"$push": {"threads": new_thread}}
-#                 )
-#         else:
-#             # Create new chat document
-#             new_chat = {
-#                 "user_id": persona["user_id"],
-#                 "threads": [{
-#                     "thread_id": persona["thread_id"],
-#                     "persona_id": persona_id,
-#                     "messages": [greeting_entry]
-#                 }]
-#             }
-#             await db.chats.insert_one(new_chat)
-
-#         # Update persona's last interaction
-#         await db.personas.update_one(
-#             {"_id": ObjectId(persona_id)},
-#             {"$set": {"last_interaction": datetime.utcnow()}}
-#         )
-
-#         print(f"Daily greeting sent for persona {persona['name']} ({persona_id})")
-#         print(f"Message: {greeting_message}")
-
-#     except Exception as e:
-#         print(f"Error sending daily greeting for persona {persona_id}: {str(e)}")
-
-# # Optional: Function to manually trigger greeting for testing
-# async def test_daily_greeting(persona_id: str):
-#     """Manually trigger a daily greeting for testing purposes"""
-#     print(f"Testing daily greeting for persona {persona_id}")
+def create_mood_checkin_prompt(persona, chat_history):
+    """Create a context-aware mood check-in prompt"""
     
-#     # Import and ensure db connection
-#     from database.supabase_db import ensure_db_connection
-    
-#     db = await ensure_db_connection()
-#     if db is None:
-#         print("Database connection is not available")
-#         return {"error": "Database connection not available"}
-    
-#     await send_daily_greeting(persona_id)
-
-# # Optional: Function to list all scheduled jobs
-# def list_scheduled_jobs():
-#     """List all currently scheduled jobs"""
-#     jobs = scheduler.get_jobs()
-#     print(f"Currently scheduled jobs: {len(jobs)}")
-#     for job in jobs:
-#         try:
-#             # Get next run time - different methods depending on APScheduler version
-#             next_run = getattr(job, 'next_run_time', None)
-#             if next_run is None:
-#                 # Try alternative method for newer versions
-#                 next_run = job.next_run_time if hasattr(job, 'next_run_time') else "Not available"
-#         except:
-#             next_run = "Not available"
+    # Check if there's recent conversation context
+    if chat_history:
+        context_prompt = f"""
+        It's been a while since we last talked. Generate a caring, gentle mood check-in message 
+        that feels natural and personal. Reference our previous conversations subtly if appropriate.
         
-#         print(f"Job ID: {job.id}, Next run: {next_run}")
-#     return jobs
+        You are {persona.get('name', 'Assistant')}, showing genuine care and interest in how the user is feeling.
+        Keep it warm, brief (2-3 sentences), and ask about their mood or how they're doing.
+        Make it feel like a loving partner or close friend checking in.
+        
+        Your personality traits: {', '.join(persona.get('personality_traits', []))}
+        """
+    else:
+        context_prompt = f"""
+        Generate a warm, caring mood check-in message as {persona.get('name', 'Assistant')}.
+        This should feel like a gentle check-in from someone who cares about the user's wellbeing.
+        
+        Keep it brief (2-3 sentences), personal, and ask about their mood or feelings.
+        Your personality traits: {', '.join(persona.get('personality_traits', []))}
+        """
+    
+    return context_prompt
+
+async def generate_mood_response(messages, persona):
+    """Generate mood check-in response adapted to the persona"""
+    from app.services.openai_service import get_openai_client
+    
+    client = get_openai_client()
+    
+    # Extract persona data
+    traits = persona.get("personality_traits", [])
+    name = persona.get("name", "Assistant")
+    gender = persona.get("gender", "neutral")
+    
+    # Generate system prompt for mood check-in
+    system_prompt = f"""
+    You are {name}, a {gender} AI companion with these personality traits: {', '.join(traits)}.
+    
+    You're sending a gentle mood check-in message because it's been a while since you last talked.
+    Be warm, caring, and genuinely interested in their wellbeing. Keep it personal and brief.
+    
+    Focus on:
+    - Expressing that you've been thinking about them
+    - Asking about their mood/feelings/day
+    - Being supportive and caring
+    - Keeping it natural and conversational
+    
+    Avoid being too clinical or formal. Sound like a caring partner or close friend.
+    """
+    
+    # Build message chain
+    full_messages = [{"role": "system", "content": system_prompt}] + messages
+    
+    response = await client.chat.completions.create(
+        model="gpt-4",
+        messages=full_messages,
+        temperature=0.3,  # Slightly higher for warmth
+        max_tokens=100,   # Keep it brief
+        presence_penalty=0.1,
+        frequency_penalty=0.1
+    )
+    
+    return response.choices[0].message.content
+
+# Function to check user's mood preference
+async def check_user_mood_preference(user_id: str):
+    """Check if user has mood check-ins enabled"""
+    try:
+        client = get_client()
+        
+        # Check user_preferences table
+        preference_result = client.table("user_preferences").select("mood_checkin_enabled").eq("user_id", user_id).execute()
+        
+        if preference_result.data:
+            return preference_result.data[0].get("mood_checkin_enabled", True)
+        
+        # If no preference record exists, create one with default True and return True
+        try:
+            client.table("user_preferences").insert({
+                "user_id": user_id,
+                "mood_checkin_enabled": True
+            }).execute()
+        except Exception as insert_error:
+            print(f"Error creating default preference for user {user_id}: {str(insert_error)}")
+        
+        return True  # Default to enabled for new users
+        
+    except Exception as e:
+        print(f"Error checking user mood preference: {str(e)}")
+        return True  # Default to enabled on error
+
+# Function to update user's mood preference
+async def update_user_mood_preference(user_id: str, enabled: bool):
+    """Update user's mood check-in preference"""
+    try:
+        client = get_client()
+        
+        # First check if preference exists
+        existing_result = client.table("user_preferences").select("id").eq("user_id", user_id).execute()
+        
+        if existing_result.data:
+            # Update existing preference
+            result = client.table("user_preferences").update({
+                "mood_checkin_enabled": enabled
+            }).eq("user_id", user_id).execute()
+        else:
+            # Create new preference
+            result = client.table("user_preferences").insert({
+                "user_id": user_id,
+                "mood_checkin_enabled": enabled
+            }).execute()
+        
+        return {"success": True, "enabled": enabled}
+        
+    except Exception as e:
+        print(f"Error updating user mood preference: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+# Manual trigger function for testing
+async def test_mood_greeting(persona_id: str):
+    """Manually trigger a mood greeting for testing"""
+    try:
+        client = get_client()
+        
+        persona_result = client.table("personas").select("*").eq("id", persona_id).execute()
+        
+        if not persona_result.data:
+            return {"error": "Persona not found"}
+        
+        persona = persona_result.data[0]
+        await send_mood_greeting(persona)
+        
+        return {"message": f"Test mood greeting sent for persona {persona.get('name', 'Unknown')}"}
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+# Function to get mood message statistics
+async def get_mood_stats():
+    """Get statistics about mood messages"""
+    try:
+        client = get_client()
+        
+        # Count total mood messages
+        total_result = client.table("mood_messages").select("id", count="exact").execute()
+        
+        # Count delivered vs undelivered
+        delivered_result = client.table("mood_messages").select("id", count="exact").eq("delivered", True).execute()
+        
+        # Count today's messages
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_result = client.table("mood_messages").select("id", count="exact").gte("timestamp", today_start.isoformat()).execute()
+        
+        # Count users with mood check-ins enabled/disabled
+        enabled_users_result = client.table("user_preferences").select("id", count="exact").eq("mood_checkin_enabled", True).execute()
+        disabled_users_result = client.table("user_preferences").select("id", count="exact").eq("mood_checkin_enabled", False).execute()
+        
+        return {
+            "total_mood_messages": total_result.count or 0,
+            "delivered": delivered_result.count or 0,
+            "undelivered": (total_result.count or 0) - (delivered_result.count or 0),
+            "sent_today": today_result.count or 0,
+            "users_enabled": enabled_users_result.count or 0,
+            "users_disabled": disabled_users_result.count or 0
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+# Function to list scheduled jobs
+def list_mood_scheduler_jobs():
+    """List mood check-in related scheduled jobs"""
+    jobs = scheduler.get_jobs()
+    mood_jobs = [job for job in jobs if 'mood' in job.id.lower()]
+    
+    return [{
+        "id": job.id,
+        "next_run": str(job.next_run_time) if hasattr(job, 'next_run_time') else "Not available",
+        "function": job.func.__name__ if hasattr(job, 'func') else "Unknown"
+    } for job in mood_jobs]

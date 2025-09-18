@@ -7,6 +7,7 @@ from app.routers.persona_routes import router as PersonaRouter
 from app.routers.chat_routes import router as ChatRouter
 from app.routers.matchmaking_routes import router as MatchRouter
 from database.supabase_db import close_db, connect_db
+from app.routers.scheduler import router as SchedulerRouter
 from scheduler_instance import scheduler
 import logging
 
@@ -28,6 +29,7 @@ app.include_router(summary.router)
 app.include_router(PersonaRouter, prefix="/api/persona")
 app.include_router(ChatRouter, prefix="/api/chat")
 app.include_router(MatchRouter, prefix="/api/match")
+app.include_router(SchedulerRouter, prefix="/api/scheduler")
 
 
 @app.on_event("startup")
