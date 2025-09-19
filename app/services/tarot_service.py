@@ -43,7 +43,8 @@ def generate_spread(name, spread_type):
             "name": card["name"],
             "position": pos,
             "orientation": orientation,
-            "meaning": meaning
+            "meaning": meaning,
+            "image_url" : card["image_url"]
         })
         interpretations.append(f"{name}, in the '{pos}' position, you drew '{card['name']}' ({orientation.title()}): {meaning}")
 
@@ -51,6 +52,9 @@ def generate_spread(name, spread_type):
         "cards": cards_output,
         "interpretations": interpretations
     }
+
+
+
 
 def generate_summary(name, cards_output, dream=None):
     keywords_matched = []
