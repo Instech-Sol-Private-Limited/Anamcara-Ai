@@ -46,17 +46,34 @@ API_KEY = os.getenv("API_NINJAS_KEY")  # Key from API Ninjas
 def get_zodiac(birthdate: str) -> str:
     dob = datetime.strptime(birthdate, "%Y-%m-%d")
     month, day = dob.month, dob.day
-    signs = [
-        ("Capricorn", 1, 19), ("Aquarius", 2, 18), ("Pisces", 3, 20),
-        ("Aries", 4, 19), ("Taurus", 5, 20), ("Gemini", 6, 20),
-        ("Cancer", 7, 22), ("Leo", 8, 22), ("Virgo", 9, 22),
-        ("Libra", 10, 22), ("Scorpio", 11, 21), ("Sagittarius", 12, 21),
-        ("Capricorn", 12, 31)
-    ]
-    for sign, m, d in signs:
-        if month == m and day <= d:
-            return sign.lower()
-    return "capricorn"
+    
+    # Check each zodiac sign with proper date range logic
+    if (month == 3 and day >= 21) or (month == 4 and day <= 19):
+        return "aries"
+    elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
+        return "taurus"
+    elif (month == 5 and day >= 21) or (month == 6 and day <= 21):
+        return "gemini"
+    elif (month == 6 and day >= 22) or (month == 7 and day <= 22):
+        return "cancer"
+    elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
+        return "leo"
+    elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
+        return "virgo"
+    elif (month == 9 and day >= 23) or (month == 10 and day <= 23):
+        return "libra"
+    elif (month == 10 and day >= 24) or (month == 11 and day <= 21):
+        return "scorpio"
+    elif (month == 11 and day >= 22) or (month == 12 and day <= 21):
+        return "sagittarius"
+    elif (month == 12 and day >= 22) or (month == 1 and day <= 19):
+        return "capricorn"
+    elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
+        return "aquarius"
+    elif (month == 2 and day >= 19) or (month == 3 and day <= 20):
+        return "pisces"
+    else:
+        return "capricorn"  # fallback
 
 def fetch_horoscope(sign: str) -> dict:
     url = "https://api.api-ninjas.com/v1/horoscope"
