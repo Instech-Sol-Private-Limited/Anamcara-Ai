@@ -32,13 +32,12 @@ async def chat(chat_message: ChatMessage):
                 role = "user" if msg["sender"] == "user" else "assistant"
                 messages.append({"role": role, "content": msg["message"]})
         
-        # Add current user message
+        # Add current user message (not saved yet)
         messages.append({"role": "user", "content": chat_message.message})
         
-        # Generate AI response
+        # Try to generate AI response
         ai_response = await generate_chat_response(messages, persona)
         
-        # Save user message
         user_message_data = {
             "thread_id": chat_message.thread_id,
             "persona_id": chat_message.persona_id,
@@ -48,7 +47,6 @@ async def chat(chat_message: ChatMessage):
             "timestamp": current_time.isoformat()
         }
         
-        # Save AI response
         ai_message_data = {
             "thread_id": chat_message.thread_id,
             "persona_id": chat_message.persona_id,
@@ -58,9 +56,7 @@ async def chat(chat_message: ChatMessage):
             "timestamp": current_time.isoformat()
         }
         
-        # Insert both messages
-        messages_to_insert = [user_message_data, ai_message_data]
-        client.table("chat_messages").insert(messages_to_insert).execute()
+        client.table("chat_messages").insert([user_message_data, ai_message_data]).execute()
         
         # Update persona's last interaction
         client.table("personas").update({
@@ -75,8 +71,27 @@ async def chat(chat_message: ChatMessage):
         )
         
     except Exception as e:
+        error_message = str(e)
+
+        # Handle OpenAI API errors gracefully
+        if "invalid_api_key" in error_message or "Incorrect API key" in error_message:
+            raise HTTPException(
+                status_code=401,
+                detail="Service configuration error. Please contact the administrator."
+            )
+        elif "429" in error_message or "rate limit" in error_message.lower():
+            raise HTTPException(
+                status_code=429,
+                detail="Service is currently overloaded. Please try again in a few moments."
+            )
+
+        # Otherwise fallback to generic error
         print(f"Error in chat: {e}")
-        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again later."
+        )
+
 
 @router.get("/history/{thread_id}")
 async def get_chat_history(thread_id: str, limit: int = 50):
