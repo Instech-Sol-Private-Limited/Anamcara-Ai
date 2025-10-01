@@ -4,6 +4,10 @@ from models.schemas import UserFormData
 from models.supabase_helpers import serialize_doc, convert_form_data_to_arrays
 from database.supabase_db import get_client
 import json
+from typing import List, Dict, Any
+import os
+import re
+from app.services.dream_service import enhance_matches_with_ai
 router = APIRouter()
 from fastapi import Request
 
@@ -112,7 +116,8 @@ async def find_match(user_id: str):
         matches.sort(key=lambda x: x["percent_match"], reverse=True)
         
         if matches:
-            return {"matches": matches}
+            enhanced_matches = await enhance_matches_with_ai(matches)
+            return {"matches": enhanced_matches}
         else:
             return {"message": "No matches found with 70% or higher compatibility"}
             
