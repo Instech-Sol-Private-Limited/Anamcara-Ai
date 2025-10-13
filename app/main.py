@@ -11,8 +11,10 @@ from app.routers.scheduler import router as SchedulerRouter
 from scheduler_instance import scheduler
 import logging
 
+from app.routers.athena_routes import router as AthenaRouter
+
 load_dotenv()
-app = FastAPI(title="DIVINE AI - Spiritual Guide/AI SoulMate")
+app = FastAPI(title="DIVINE AI - Spiritual Guide/AI SoulMate- Athena MCQ's")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  
@@ -30,7 +32,7 @@ app.include_router(PersonaRouter, prefix="/api/persona")
 app.include_router(ChatRouter, prefix="/api/chat")
 app.include_router(MatchRouter, prefix="/api/match")
 app.include_router(SchedulerRouter, prefix="/api/scheduler")
-
+app.include_router(AthenaRouter, prefix="/api/athena")
 
 @app.on_event("startup")
 async def startup():
@@ -38,16 +40,16 @@ async def startup():
     try:
         # Initialize Supabase client
         connect_db()
-        print("✅ Supabase client initialized")
+        print(" Supabase client initialized")
         
         # Start the scheduler
         scheduler.start()
-        print("✅ Scheduler started")
+        print(" Scheduler started")
         
-        print("🚀 DESTINY AI SoulMate API started successfully!")
+        print(" DESTINY AI SoulMate API started successfully!")
         
     except Exception as e:
-        print(f"❌ Error during startup: {e}")
+        print(f" Error during startup: {e}")
         raise
 
 @app.on_event("shutdown")
@@ -56,16 +58,16 @@ async def shutdown():
     try:
         # Close database connection
         close_db()
-        print("✅ Database connection closed")
+        print(" Database connection closed")
         
         # Shutdown scheduler
         scheduler.shutdown()
-        print("✅ Scheduler shut down")
+        print(" Scheduler shut down")
         
-        print("👋 DESTINY AI SoulMate API shut down gracefully")
+        print(" DESTINY AI SoulMate API shut down gracefully")
         
     except Exception as e:
-        print(f"❌ Error during shutdown: {e}")
+        print(f" Error during shutdown: {e}")
 
 @app.get("/health")
 async def health_check():
