@@ -10,7 +10,7 @@ from database.supabase_db import close_db, connect_db
 from app.routers.scheduler import router as SchedulerRouter
 from scheduler_instance import scheduler
 import logging
-
+from app.routers.ai_recommendation import router as AIRecommendationRouter
 from app.routers.athena_routes import router as AthenaRouter
 
 load_dotenv()
@@ -33,6 +33,7 @@ app.include_router(ChatRouter, prefix="/api/chat")
 app.include_router(MatchRouter, prefix="/api/match")
 app.include_router(SchedulerRouter, prefix="/api/scheduler")
 app.include_router(AthenaRouter, prefix="/api/athena")
+app.include_router(AIRecommendationRouter, prefix="/api/ai_recommendation")
 
 @app.on_event("startup")
 async def startup():

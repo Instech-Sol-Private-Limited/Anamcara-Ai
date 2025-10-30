@@ -38,3 +38,6 @@ def tarot_summary(payload: TarotSummaryRequest):
     # Generate summary with dream (if provided)
     summary_data = generate_summary("Your Reading", cards_output, payload.dream)
     return summary_data
+
+
+

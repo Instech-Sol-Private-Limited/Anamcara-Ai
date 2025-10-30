@@ -9,6 +9,8 @@ from app.services.scheduler_service import (
     update_user_mood_preference
 )
 from database.supabase_db import get_client
+import requests
+from bs4 import BeautifulSoup
 
 router = APIRouter()
 
@@ -222,3 +224,4 @@ async def toggle_user_mood_preference(user_id: str):
             raise HTTPException(status_code=500, detail=result["error"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    

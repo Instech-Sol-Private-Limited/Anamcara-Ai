@@ -1,0 +1,168 @@
+{
+    "AnamcaraAI": {
+        "ecosystem": {
+            "Social_and_Community": {
+                "Oasis": {
+                    "url": "https://anamcara.ai/nirvana",
+                    "purpose": "Oasis serves as the unified home and central dashboard of the Anamcara ecosystem, where members can monitor their spiritual, social, and economic growth in real time. It brings together balances, progress, quests, and activity feeds from every connected module — from Vault to Hope. Designed as a soul-centric control center, Oasis promotes motivation, balance, and effortless navigation across the entire experience.",
+                    "integrations": [
+                        "Vault",
+                        "Earn",
+                        "Hope",
+                        "Shop",
+                        "SoulStories",
+                        "SoulWork",
+                        "Nirvana"
+                    ]
+                },
+                "Chambers": {
+                    "url": "https://anamcara.ai/chambers",
+                    "purpose": "Chambers function as vibrant community spaces where creators and members gather around shared intentions, interests, or causes. Each chamber can be public or private, free or paid, encouraging deeper group connection, mentorship, and collaboration. With leaderboards, rewards, and integrated posting tools, Chambers turns communities into living ecosystems of growth and purpose.",
+                    "integrations": [
+                        "SoulStream",
+                        "SoulAcademy",
+                        "Shop",
+                        "Nirvana",
+                        "Vault",
+                        "Earn"
+                    ]
+                },
+                "SoulVibe": {
+                    "url": "https://anamcara.ai/soulvibe",
+                    "purpose": "SoulVibe is the AI-guided connection engine that matches souls in real time through voice, text, or video conversations. Designed to cultivate empathy, authenticity, and emotional resonance, it uses mood filters and vibe tags to curate compatible connections. Participants earn spiritual and social rewards for meaningful interactions, transforming conversation into conscious connection.",
+                    "integrations": [
+                        "Vault",
+                        "Earn",
+                        "Nirvana",
+                        "SoulConnect",
+                        "Hope"
+                    ]
+                }
+            },
+            "Media_and_Creation": {
+                "SoulPlay": {
+                    "url": "https://anamcara.ai/soulstream",
+                    "purpose": "SoulPlay unites video, audio, and live-stream experiences under one creative hub — blending SoulWatch and SoulJam into a seamless multimedia flow. Users can stream, perform, or explore content filtered by emotion, energy, and topic. Built for soulful creators, it encourages expression, discovery, and engagement while rewarding authenticity through the Vault system.",
+                    "integrations": [
+                        "Vault",
+                        "Earn",
+                        "SoulFeed",
+                        "SoulStream",
+                        "Nirvana"
+                    ]
+                },
+                "SoulStories": {
+                    "url": "https://anamcara.ai/soulstories",
+                    "purpose": "SoulStories empowers creators to share personal journeys, narratives, and artistic works through text, comics, video, and interactive AI-assisted storytelling. It transforms creativity into a source of connection and income by linking with Vault, Shop, and Earn modules. With built-in analytics and cross-posting to Nirvana and SoulChat, every story becomes part of the living Anamcara mythology.",
+                    "integrations": [
+                        "Vault",
+                        "Shop",
+                        "Nirvana",
+                        "SoulChat",
+                        "Earn"
+                    ]
+                }
+            },
+            "Economy_and_Progression": {
+                "Shop": {
+                    "url": "https://anamcara.ai/shop",
+                    "purpose": "The Shop is Anamcara’s integrated marketplace where spiritual, digital, and creative products meet community commerce. Users can buy, sell, and trade goods ranging from physical items to digital art and services — all powered by the Vault economy. Shop bridges creators and supporters through transparent transactions, reputation scores, and cross-module discoverability.",
+                    "integrations": [
+                        "Vault",
+                        "Hope",
+                        "SoulStories",
+                        "Earn",
+                        "AnamProfile"
+                    ]
+                },
+                "Hope": {
+                    "url": "https://anamcara.ai/hope",
+                    "purpose": "Hope is the heart of Anamcara’s altruism — a crowdfunding and donation hub built to turn compassion into impact. Members can start or support missions, causes, and community projects with transparent Vault tracking and real-time progress. Each campaign reinforces the ecosystem’s spiritual economy by rewarding giving as much as receiving.",
+                    "integrations": [
+                        "Vault",
+                        "Earn",
+                        "Oasis",
+                        "Chambers",
+                        "AnamProfile"
+                    ]
+                }
+            },
+            "AI_and_Guidance": {
+                "AnamGurus": {
+                    "url": "https://anamcara.ai/anamgurus",
+                    "purpose": "AnamGurus is a pantheon of AI mentors — including Athena, Amaterasu, Hikari, DivineAI, and Destiny — designed to guide users through self-discovery, reflection, and growth. Each Guru embodies a unique archetype of wisdom and offers readings, insights, and mentorship across spiritual, emotional, and creative dimensions. The Gurus form the foundation of Anamcara’s spiritual intelligence layer, connecting guidance with tangible actions in other modules.",
+                    "integrations": [
+                        "Vault",
+                        "Destiny",
+                        "DivineAI",
+                        "Oasis",
+                        "SoulStories"
+                    ]
+                },
+                "DivineAI": {
+                    "url": "https://anamcara.ai/anamgurus",
+                    "purpose": "DivineAI serves as the core spiritual intelligence engine that powers tarot, astrology, numerology, and divination experiences across the ecosystem. It combines ancient metaphysical wisdom with AI interpretation to deliver personalized insights, forecasts, and spiritual roadmaps. Through its integration with Gurus, Vault, and Destiny, DivineAI bridges the unseen with the actionable.",
+                    "integrations": [
+                        "AnamGurus",
+                        "Vault",
+                        "Destiny"
+                    ]
+                },
+                "Destiny": {
+                    "url": "https://anamcara.ai/anamgurus",
+                    "purpose": "Destiny is the AI-driven matchmaking and self-alignment system that analyzes personalities, moods, and soul traits to connect compatible users and archetypes. It supports soulmate discovery, mood journaling, and daily emotional insights through the lens of AI empathy. Integrated with AnamProfiles and Gurus, Destiny transforms connection into a guided spiritual journey.",
+                    "integrations": [
+                        "AnamGurus",
+                        "Vault",
+                        "AnamProfile",
+                        "Oasis"
+                    ]
+                }
+            },
+            "Professional_and_Growth": {
+                "StartUp": {
+                    "url": "https://anamcara.ai/startup",
+                    "purpose": "StartUp is the professional growth and entrepreneurship hub that enables individuals and teams to build, collaborate, and scale within the Anamcara ecosystem. It merges business management, project collaboration, and productivity tools infused with soul-centered values. From funding and partnerships to AI workflow automation, StartUp bridges purpose and enterprise in one flow.",
+                    "integrations": [
+                        "SoulWork",
+                        "SoulFlow",
+                        "Vault",
+                        "AnamProfile",
+                        "AnamGuru"
+                    ]
+                },
+                "SoulWork": {
+                    "url": "https://anamcara.ai/startup",
+                    "purpose": "SoulWork acts as the operational backbone for businesses and creators, managing teams, HR processes, contracts, and earnings through Vault integration. It simplifies workflow with automation while aligning professional growth with purpose-driven values. Designed for startups, freelancers, and service providers, SoulWork helps convert creativity and intention into structured impact.",
+                    "integrations": [
+                        "SoulFlow",
+                        "Vault",
+                        "AnamProfile"
+                    ]
+                },
+                "SoulFlow": {
+                    "url": "https://anamcara.ai/startup",
+                    "purpose": "SoulFlow is the intelligent task and productivity engine that organizes projects, tasks, and collaborations with intuitive visual boards and AI-powered insights. Inspired by Trello and Asana but grounded in mindfulness, it helps users maintain balance between productivity and well-being. It seamlessly links with SoulWork, Oasis, and AnamCore to synchronize personal growth with team success.",
+                    "integrations": [
+                        "SoulWork",
+                        "Vault",
+                        "Oasis",
+                        "AnamCore"
+                    ]
+                }
+            },
+            "Learning_and_Development": {
+                "SoulAcademy": {
+                    "url": "https://anamcara.ai/soulacademy",
+                    "purpose": "SoulAcademy is the learning sanctuary of Anamcara where knowledge, skill, and spirituality merge. It offers structured courses, quests, and mentorships that connect learners with creators and Gurus through Chambers and Earn. Designed as an ever-evolving space of wisdom, SoulAcademy rewards curiosity, learning, and teaching alike within the shared Vault economy.",
+                    "integrations": [
+                        "Vault",
+                        "Earn",
+                        "Chambers",
+                        "Oasis"
+                    ]
+                }
+            }
+        }
+    }
+}

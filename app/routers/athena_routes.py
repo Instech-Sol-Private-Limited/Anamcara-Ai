@@ -15,6 +15,10 @@ from app.services.mcq_generator import generate_mcq_questions
 import io
 import uuid
 from typing import Optional
+from fastapi.responses import StreamingResponse
+import fitz  # PyMuPDF
+import requests
+from bs4 import BeautifulSoup
 
 router = APIRouter()
 client = get_client()
@@ -37,7 +41,20 @@ async def generate_test(request: GenerateTestRequest):
             status=TestStatus.GENERATED
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        error_message = str(e)
+
+        # Check if the error is due to insufficient quota
+        if "insufficient_quota" in error_message or "You exceeded your current quota" in error_message or "429" in error_message:
+            raise HTTPException(
+                status_code=402,
+                detail="Credits expired. Please contact the administrator."
+            )
+        
+        # General error
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generation failed: {error_message}"
+        )
 
 @router.post("/retake-test/{test_id}", response_model=GenerateTestResponse)
 async def retake_test(test_id: str):
@@ -206,116 +223,131 @@ async def get_test_history(student_email: str):
         return {"student_email": student_email, "test_history": history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/certificate/{test_id}")
+async def generate_certificate(test_id: str):
+    """
+    Generate a certificate by properly replacing the template name with student name.
+    Uses image overlay technique for better results with styled fonts.
+    """
+    try:
+        # --- Step 1: Fetch dynamic data ---
+        test_res = client.table("tests").select("student_name").eq("test_id", test_id).execute()
+        if not test_res.data:
+            raise HTTPException(status_code=404, detail="Test not found")
+        test = test_res.data[0]
+        student_name = test.get("student_name", "Anonymous")
 
-# # ==================== CERTIFICATE ====================
+        # --- Step 2: Load the PDF template ---
+        template_path = "cert.pdf"
+        doc = fitz.open(template_path)
+        page = doc[0]
 
-# @router.get("/certificate/{test_id}")
-# async def generate_certificate(test_id: str):
-#     """Generate certificate PDF for completed test"""
-#     try:
-#         from reportlab.lib.pagesizes import A4
-#         from reportlab.pdfgen import canvas
-#         from reportlab.lib import colors
+        # --- Step 3: Search for the placeholder name text ---
+        placeholder_text = "Claudia Alves"
+        text_instances = page.search_for(placeholder_text)
         
-#         # Fetch test
-#         test_res = client.table("tests").select("*").eq("test_id", test_id).execute()
-#         if not test_res.data:
-#             raise HTTPException(status_code=404, detail="Test not found")
-#         test = test_res.data[0]
+        if text_instances:
+            name_rect = text_instances[0]
+            
+            # --- Step 4: Completely remove the old name ---
+            # Method 1: Use redaction (most thorough)
+            redact_rect = fitz.Rect(
+                name_rect.x0 - 20,
+                name_rect.y0 - 20,
+                name_rect.x1 + 20,
+                name_rect.y1 + 20
+            )
+            page.add_redact_annot(redact_rect, fill=(0, 0, 0))
+            page.apply_redactions()
+            
+            # Method 2: Additional black rectangle overlay for extra coverage
+            page.draw_rect(redact_rect, color=(0, 0, 0), fill=(0, 0, 0), overlay=True)
+            
+            # --- Step 5: Position new text precisely ---
+            # Calculate center point of the original text
+            center_x = name_rect.x0 + (name_rect.width / 2)
+            baseline_y = name_rect.y1 - (name_rect.height * 0.25)  # Baseline position
+            
+            # Font settings - matching the cyan glow style
+            font_size = 52  # Adjust based on your name length
+            fontname = "tibo"  # Times Bold Italic (closest to script)
+            text_color = (0.3, 0.88, 0.92)  # Cyan color
+            
+            # Calculate text dimensions for centering
+            text_width = fitz.get_text_length(student_name, fontname=fontname, fontsize=font_size)
+            
+            # Center the text horizontally
+            text_x = center_x - (text_width / 2)
+            text_position = fitz.Point(text_x, baseline_y)
+            
+            # Insert the new name
+            page.insert_text(
+                text_position,
+                student_name,
+                fontsize=font_size,
+                fontname=fontname,
+                color=text_color,
+                rotate=0,
+            )
+            
+        else:
+            # --- Fallback: Manual positioning if search fails ---
+            # These coordinates are based on typical certificate layouts
+            # Adjust if needed for your specific template
+            
+            # Define the name area manually (approximate based on image)
+            manual_rect = fitz.Rect(180, 370, 420, 320)
+            
+            # Cover the area
+            page.draw_rect(manual_rect, color=(0, 0, 0), fill=(0, 0, 0))
+            
+            # Calculate positioning
+            center_x = manual_rect.x0 + (manual_rect.width / 2)
+            baseline_y = manual_rect.y1 - (manual_rect.height * 0.3)
+            
+            font_size = 52
+            fontname = "tibo"
+            text_color = (0.3, 0.88, 0.92)
+            
+            text_width = fitz.get_text_length(student_name, fontname=fontname, fontsize=font_size)
+            text_x = center_x - (text_width / 2)
+            text_position = fitz.Point(text_x, baseline_y)
+            
+            page.insert_text(
+                text_position,
+                student_name,
+                fontsize=font_size,
+                fontname=fontname,
+                color=text_color,
+                rotate=0,
+            )
 
-#         # Fetch submission
-#         sub_res = client.table("submissions").select("*").eq("test_id", test_id).execute()
-#         if not sub_res.data:
-#             raise HTTPException(status_code=404, detail="Test not submitted yet")
-#         submission = sub_res.data[0]
+        # --- Step 6: Save to buffer ---
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        doc.close()
+        buffer.seek(0)
 
-#         # Check pass/fail
-#         result_status = "PASSED ✅" if submission["percentage"] >= 60 else "COMPLETED"
+        # --- Step 7: Return PDF ---
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=certificate_{test_id}.pdf"
+            },
+        )
 
-#         buffer = io.BytesIO()
-#         p = canvas.Canvas(buffer, pagesize=A4)
-#         width, height = A4
-
-#         # Simple but professional certificate design
-#         # Background
-#         p.setFillColor(colors.Color(0.95, 0.95, 1))
-#         p.rect(0, 0, width, height, fill=1)
-
-#         # Border
-#         p.setStrokeColor(colors.Color(0.2, 0.2, 0.6))
-#         p.setLineWidth(5)
-#         p.roundRect(40, 60, width-80, height-120, 20, fill=0)
-
-#         # Title
-#         p.setFont("Helvetica-Bold", 32)
-#         p.setFillColor(colors.Color(0.1, 0.1, 0.4))
-#         p.drawCentredString(width/2, height-120, "CERTIFICATE")
-
-#         p.setFont("Helvetica", 14)
-#         p.setFillColor(colors.Color(0.3, 0.3, 0.6))
-#         p.drawCentredString(width/2, height-150, "OF ACHIEVEMENT")
-
-#         # Student name
-#         p.setFont("Helvetica", 14)
-#         p.setFillColor(colors.black)
-#         p.drawCentredString(width/2, height-220, "This certifies that")
-
-#         p.setFont("Helvetica-Bold", 24)
-#         p.setFillColor(colors.Color(0.2, 0.2, 0.8))
-#         p.drawCentredString(width/2, height-260, test["student_name"].upper())
-
-#         # Subject
-#         p.setFont("Helvetica", 14)
-#         p.setFillColor(colors.black)
-#         p.drawCentredString(width/2, height-300, f"has successfully completed")
-        
-#         p.setFont("Helvetica-Bold", 16)
-#         p.setFillColor(colors.Color(0.1, 0.1, 0.5))
-#         p.drawCentredString(width/2, height-330, test['subject'])
-
-#         # Score box
-#         p.setStrokeColor(colors.Color(0.2, 0.2, 0.6))
-#         p.setLineWidth(2)
-#         p.roundRect(width/2-120, height-410, 240, 60, 10, fill=0)
-        
-#         p.setFont("Helvetica", 12)
-#         p.setFillColor(colors.black)
-#         p.drawCentredString(width/2, height-385, f"Score: {submission['score']}/{submission['total_questions']}")
-#         p.drawCentredString(width/2, height-402, f"Percentage: {submission['percentage']:.1f}%")
-
-#         # Result
-#         result_color = colors.green if submission["percentage"] >= 60 else colors.blue
-#         p.setFont("Helvetica-Bold", 14)
-#         p.setFillColor(result_color)
-#         p.drawCentredString(width/2, height-440, f"{result_status}")
-
-#         # Date
-#         p.setFont("Helvetica", 10)
-#         p.setFillColor(colors.grey)
-#         p.drawCentredString(width/2, 120, f"Issued on {datetime.now().strftime('%B %d, %Y')}")
-
-#         # Signature lines
-#         p.setStrokeColor(colors.grey)
-#         p.line(100, 80, 230, 80)
-#         p.line(width-230, 80, width-100, 80)
-#         p.setFont("Helvetica", 8)
-#         p.drawCentredString(165, 65, "Authorized By")
-#         p.drawCentredString(width-165, 65, "Anamcara AI")
-
-#         p.showPage()
-#         p.save()
-#         buffer.seek(0)
-
-#         return StreamingResponse(buffer, media_type="application/pdf", headers={
-#             "Content-Disposition": f"attachment; filename=certificate_{test_id}.pdf"
-#         })
-        
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Certificate generation failed: {str(e)}")
-
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Certificate template not found.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Certificate generation failed: {str(e)}"
+        )
 # # ==================== ATHENA CLASH & SOUL ARENA ====================
+            # manual_rect = fitz.Rect(180, 370, 420, 320)
 
 @router.post("/challenge/create")
 async def create_challenge(
