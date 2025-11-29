@@ -1,9 +1,11 @@
-# app/mcq_generator.py
+# app/services/mcq_generator.py
 import os
 import json
 import uuid
 from datetime import datetime
 from langchain_openai import ChatOpenAI
+from openai import AsyncOpenAI
+from groq import AsyncGroq
 from langchain.agents import AgentExecutor, create_openai_functions_agent
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -13,10 +15,12 @@ from typing import List
 from database.supabase_db import get_client
 from models.schemas import MCQQuestion, MCQOption
 import asyncio
+from app.services.llm_gateway import llm_gateway
+import re
 
 client = get_client()
 
-# Initialize LLM
+# Initialize LLM for Agent
 llm = ChatOpenAI(
     model="gpt-4o",
     temperature=0.1,
@@ -211,9 +215,9 @@ agent_executor = AgentExecutor(
     handle_parsing_errors=True,
 )
 
-# NEW: Direct database storage function
+# Database storage function
 def store_questions_to_db(test_id: str, subject: str, student_name: str, 
-                         student_email: str, questions_data: list) -> bool:
+                         student_email: str, questions_data: list, generation_method: str = "agent") -> bool:
     """Store validated questions directly in the database"""
     try:
         test_data = {
@@ -223,24 +227,102 @@ def store_questions_to_db(test_id: str, subject: str, student_name: str,
             "student_email": student_email,
             "status": "generated",
             "created_at": datetime.now().isoformat(),
-            "questions_data": questions_data
+            "questions_data": questions_data,
+            "generation_method": generation_method  # Track which method was used
         }
 
         client.table("tests").insert(test_data).execute()
+        print(f" Stored {len(questions_data)} questions to database using method: {generation_method}")
         return True
     except Exception as e:
-        print(f"Database storage error: {str(e)}")
+        print(f" Database storage error: {str(e)}")
         return False
 
+
+# ============================================================================
+# MAIN FUNCTION WITH 3-TIER FALLBACK
+# ============================================================================
+
 async def generate_mcq_questions(subject: str, student_name: str, student_email: str = None):
-    """Generate 20 MCQ questions using LangChain Agent and store in DB"""
+    """
+    Generate 20 MCQ questions with three-tier fallback system:
     
+    TIER 1: LangChain Agent with OpenAI (gpt-4o) - Best quality, uses tools
+    TIER 2: Simple OpenAI (gpt-4o-mini) - Good quality, direct prompt
+    TIER 3: Groq (llama-3.3-70b) - Fast fallback, always available
+    
+    Returns:
+        tuple: (test_id, questions_list)
+    """
+    
+    test_id = str(uuid.uuid4())
+    
+    # ========================================================================
+    # TIER 1: Try Agent-Based Generation (Best Quality)
+    # ========================================================================
     try:
-        # Generate unique test ID
-        test_id = str(uuid.uuid4())
+        print(f" TIER 1: Attempting Agent-based generation for {subject}...")
+        questions = await generate_with_agent(subject, student_name, test_id, student_email)
         
-        # Agent input - simplified without StoreQuestions step
-        agent_input = f"""
+        if questions and len(questions) >= 20:
+            print(f" TIER 1 SUCCESS: Agent generated {len(questions)} questions")
+            return test_id, questions
+            
+    except Exception as e:
+        error_msg = str(e)
+        print(f" TIER 1 FAILED: {error_msg}")
+        
+        # Check if it's a quota/rate limit error
+        if not any(x in error_msg.lower() for x in ["quota", "insufficient", "429", "rate_limit", "rate limit"]):
+            # If it's not a quota error, it might be a parsing/validation error
+            # Still continue to fallback for safety
+            print(f"   Reason: {error_msg[:100]}...")
+    
+    # ========================================================================
+    # TIER 2: Simple OpenAI Fallback (Good Quality)
+    # ========================================================================
+    try:
+        print(f" TIER 2: Falling back to Simple OpenAI generation...")
+        questions = await generate_simple_openai(subject, student_name, test_id, student_email)
+        
+        if questions and len(questions) >= 20:
+            print(f" TIER 2 SUCCESS: Simple OpenAI generated {len(questions)} questions")
+            return test_id, questions
+            
+    except Exception as e:
+        print(f" TIER 2 FAILED: {str(e)}")
+    
+    # ========================================================================
+    # TIER 3: Groq Fallback (Fast, Always Available)
+    # ========================================================================
+    try:
+        print(f" TIER 3: Final fallback to Groq generation...")
+        questions = await generate_with_groq(subject, student_name, test_id, student_email)
+        
+        if questions and len(questions) >= 20:
+            print(f" TIER 3 SUCCESS: Groq generated {len(questions)} questions")
+            return test_id, questions
+            
+    except Exception as e:
+        print(f" TIER 3 FAILED: {str(e)}")
+    
+    # ========================================================================
+    # All Tiers Failed
+    # ========================================================================
+    print(" ALL TIERS FAILED: Unable to generate questions")
+    raise Exception("All AI providers failed to generate questions. Please try again later or contact support.")
+
+
+# ============================================================================
+# TIER 1: Agent-Based Generation (Your Original Code)
+# ============================================================================
+
+async def generate_with_agent(subject: str, student_name: str, test_id: str, student_email: str = None):
+    """
+    TIER 1: Generate using LangChain Agent with tools (Best Quality)
+    """
+    
+    agent_input = f"""
 Generate a test with the following requirements:
 
 - Subject: {subject}
@@ -249,51 +331,159 @@ Generate a test with the following requirements:
 - Test ID: {test_id}
 
 Strictly follow below workflow:
-Here is the exact workflow you MUST follow:
 1. First, call the `GetSubjectGuidelines` tool to understand the requirements for the subject '{subject}'.
 2. Second, generate exactly 20 multiple-choice questions based on the guidelines.
-3. Third, call the `ValidateQuestions` tool to check your generated questions. If validation fails, you MUST fix the errors and re-generate until it passes. Do not give up.
-4. **IMPORTANT FINAL STEP:** After validation passes, your final, conclusive output MUST be ONLY the raw JSON array of the questions you generated. Do not include any other text, greetings, summaries, or explanations. The entire response should start with '[' and end with ']'.
+3. Third, call the `ValidateQuestions` tool to check your generated questions. If validation fails, you MUST fix the errors and re-generate until it passes.
+4. **IMPORTANT FINAL STEP:** After validation passes, your final output MUST be ONLY the raw JSON array of the questions. No extra text. Start with '[' and end with ']'.
 """
+    
+    # Execute agent
+    result = agent_executor.invoke({"input": agent_input})
+    
+    # Extract questions from agent output
+    output_text = result.get("output", "")
+    
+    # Try to parse JSON from output
+    try:
+        # Find JSON array in output
+        start_idx = output_text.find('[')
+        end_idx = output_text.rfind(']') + 1
         
-        # Execute agent
-        result = agent_executor.invoke({"input": agent_input})
-        
-        # Extract questions from agent output
-        output_text = result.get("output", "")
-        
-        # Try to parse JSON from output
-        try:
-            # Find JSON array in output
-            start_idx = output_text.find('[')
-            end_idx = output_text.rfind(']') + 1
+        if start_idx != -1 and end_idx > start_idx:
+            json_str = output_text[start_idx:end_idx]
+            questions_data = json.loads(json_str)
+        else:
+            raise ValueError("No JSON array found in agent output")
             
-            if start_idx != -1 and end_idx > start_idx:
-                json_str = output_text[start_idx:end_idx]
-                questions_data = json.loads(json_str)
-            else:
-                raise ValueError("No JSON array found in agent output")
-                
-        except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(f"Failed to parse questions from agent output: {str(e)}")
+    except (json.JSONDecodeError, ValueError) as e:
+        raise ValueError(f"Failed to parse questions from agent output: {str(e)}")
+    
+    # Validate we have 20 questions
+    if len(questions_data) != 20:
+        raise ValueError(f"Expected 20 questions, got {len(questions_data)}")
+    
+    # Store questions in database
+    storage_success = store_questions_to_db(
+        test_id=test_id,
+        subject=subject,
+        student_name=student_name,
+        student_email=student_email,
+        questions_data=questions_data,
+        generation_method="agent_gpt4o"
+    )
+    
+    if not storage_success:
+        raise Exception("Failed to store questions in database")
+    
+    # Convert to MCQQuestion objects
+    questions = []
+    for i, q in enumerate(questions_data, 1):
+        question = MCQQuestion(
+            question_id=i,
+            question=q["question"],
+            options=MCQOption(**q["options"])
+        )
+        questions.append(question)
+    
+    return questions
+
+
+# ============================================================================
+# TIER 2: Simple OpenAI Generation (Direct Prompt)
+# ============================================================================
+
+async def generate_simple_openai(subject: str, student_name: str, test_id: str, student_email: str = None):
+    """
+    TIER 2: Simple OpenAI generation without agent (Good Quality)
+    """
+    
+    # Get guidelines for the subject
+    guidelines = get_subject_guidelines_tool(subject)
+    
+    prompt = f"""Generate EXACTLY 20 multiple-choice questions for a {subject} test for {student_name}.
+
+SUBJECT GUIDELINES:
+{guidelines}
+
+STRICT FORMAT REQUIREMENTS:
+- Output ONLY a JSON array, nothing else
+- No markdown, no code blocks, no explanations
+- Start with '[' and end with ']'
+- Each question must have this exact structure:
+
+{{
+  "question": "Question text here",
+  "options": {{
+    "A": "First option",
+    "B": "Second option",
+    "C": "Third option",
+    "D": "Fourth option"
+  }},
+  "answer": "A"
+}}
+
+REQUIREMENTS:
+- Generate exactly 20 questions
+- Make questions diverse and challenging
+- Ensure only ONE correct answer per question
+- All options must be plausible
+- Follow subject-specific guidelines above
+
+Output the JSON array NOW (no other text):"""
+    
+    messages = [
+        {"role": "system", "content": "You are an expert exam question generator. You ONLY output valid JSON arrays, nothing else."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    # Direct OpenAI call
+    openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=4000
+        )
         
-        # Validate we have 20 questions
-        if len(questions_data) != 20:
-            raise ValueError(f"Expected 20 questions, got {len(questions_data)}")
+        content = response.choices[0].message.content.strip()
         
-        # Store questions in database
+        # Clean up the response
+        content = content.replace("```json", "").replace("```", "").strip()
+        
+        # Parse JSON
+        questions_data = json.loads(content)
+        
+        # Validate
+        if not isinstance(questions_data, list):
+            raise ValueError("Response is not a JSON array")
+        
+        if len(questions_data) < 20:
+            raise ValueError(f"Only generated {len(questions_data)} questions, need 20")
+        
+        # Take exactly 20
+        questions_data = questions_data[:20]
+        
+        # Validate structure
+        for i, q in enumerate(questions_data, 1):
+            if not all(key in q for key in ["question", "options", "answer"]):
+                raise ValueError(f"Question {i} missing required fields")
+        
+        # Store in database
         storage_success = store_questions_to_db(
             test_id=test_id,
             subject=subject,
             student_name=student_name,
             student_email=student_email,
-            questions_data=questions_data
+            questions_data=questions_data,
+            generation_method="simple_openai"
         )
         
         if not storage_success:
             raise Exception("Failed to store questions in database")
         
-        # Convert to MCQQuestion objects (without answers for response)
+        # Convert to MCQQuestion objects
         questions = []
         for i, q in enumerate(questions_data, 1):
             question = MCQQuestion(
@@ -303,7 +493,118 @@ Here is the exact workflow you MUST follow:
             )
             questions.append(question)
         
-        return test_id, questions
+        return questions
         
     except Exception as e:
-        raise Exception(f"Agent failed to generate questions: {str(e)}")
+        raise Exception(f"Simple OpenAI generation failed: {str(e)}")
+
+
+# ============================================================================
+# TIER 3: Groq Fallback Generation (Fast, Always Available)
+# ============================================================================
+
+async def generate_with_groq(subject: str, student_name: str, test_id: str, student_email: str = None):
+    """
+    TIER 3: Groq generation (Fast, reliable fallback)
+    """
+    
+    # Get guidelines for the subject
+    guidelines = get_subject_guidelines_tool(subject)
+    
+    prompt = f"""Generate EXACTLY 20 multiple-choice questions for a {subject} test.
+
+SUBJECT GUIDELINES:
+{guidelines}
+
+CRITICAL FORMAT - Follow EXACTLY:
+Output ONLY a JSON array. No other text, no markdown, no code blocks.
+
+[
+  {{
+    "question": "Question text",
+    "options": {{
+      "A": "Option A",
+      "B": "Option B",
+      "C": "Option C",
+      "D": "Option D"
+    }},
+    "answer": "A"
+  }},
+  ... (repeat for 20 questions total)
+]
+
+Start output with '[' and end with ']'. Generate NOW:"""
+    
+    messages = [
+        {"role": "system", "content": "You are an exam question generator. Output ONLY valid JSON arrays with no additional text."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    # Use Groq client
+    groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    
+    try:
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=4000
+        )
+        
+        content = response.choices[0].message.content.strip()
+        
+        # Clean up response
+        content = content.replace("```json", "").replace("```", "").strip()
+        
+        # Find JSON array
+        start_idx = content.find('[')
+        end_idx = content.rfind(']') + 1
+        
+        if start_idx != -1 and end_idx > start_idx:
+            json_str = content[start_idx:end_idx]
+            questions_data = json.loads(json_str)
+        else:
+            raise ValueError("No JSON array found in response")
+        
+        # Validate
+        if not isinstance(questions_data, list):
+            raise ValueError("Response is not a JSON array")
+        
+        if len(questions_data) < 20:
+            raise ValueError(f"Only generated {len(questions_data)} questions")
+        
+        # Take exactly 20
+        questions_data = questions_data[:20]
+        
+        # Validate structure
+        for i, q in enumerate(questions_data, 1):
+            if not all(key in q for key in ["question", "options", "answer"]):
+                raise ValueError(f"Question {i} missing required fields")
+        
+        # Store in database
+        storage_success = store_questions_to_db(
+            test_id=test_id,
+            subject=subject,
+            student_name=student_name,
+            student_email=student_email,
+            questions_data=questions_data,
+            generation_method="groq_fallback"
+        )
+        
+        if not storage_success:
+            raise Exception("Failed to store questions in database")
+        
+        # Convert to MCQQuestion objects
+        questions = []
+        for i, q in enumerate(questions_data, 1):
+            question = MCQQuestion(
+                question_id=i,
+                question=q["question"],
+                options=MCQOption(**q["options"])
+            )
+            questions.append(question)
+        
+        return questions
+        
+    except Exception as e:
+        raise Exception(f"Groq generation failed: {str(e)}")

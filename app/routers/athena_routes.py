@@ -1,6 +1,3 @@
-
-
-
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Body
 from database.supabase_db import get_client
 from app.services.test_services import start_test_timer, submit_test_answers
@@ -16,7 +13,7 @@ import io
 import uuid
 from typing import Optional
 from fastapi.responses import StreamingResponse
-import fitz  # PyMuPDF
+import fitz  
 import requests
 from bs4 import BeautifulSoup
 

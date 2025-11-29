@@ -305,3 +305,20 @@ class ChallengeParticipantDB(BaseModel):
     answers: Optional[Dict[str, str]]
     joined_at: str
     finished_at: Optional[str]
+
+class QueryRequest(BaseModel):
+    user_id: Optional[str] = None
+    query: str
+    user_type: str = "guest"
+    conversation_id: Optional[str] = None  # ✅ NEW: Track conversation thread
+
+class Message(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: str
+
+class QueryResponse(BaseModel):
+    message: str
+    safety: str = "ok"
+    conversation_id: Optional[str] = None
+    chat_history: Optional[List[Message]] = None  # ✅ NEW: Return history

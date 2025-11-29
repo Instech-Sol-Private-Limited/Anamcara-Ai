@@ -2,41 +2,34 @@
 from openai import AsyncOpenAI
 from utils.prompt_generation import generate_personality_prompt
 import os
-
-def get_openai_client():
-    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from app.services.llm_gateway import llm_gateway
 
 async def generate_chat_response(messages, persona):
-    """Generate chat response adapted to the specific persona"""
-    client = get_openai_client()
+    """Generate chat response using LLM Gateway with fallback"""
     
-    # Extract persona data
-    traits = persona.get("personality_traits", [])
-    name = persona.get("name", "Assistant")
-    gender = persona.get("gender", "neutral")
+    # Build system prompt from persona
+    personality_traits = persona.get('personality_traits', [])
+    if isinstance(personality_traits, str):
+        personality_traits = [personality_traits]
     
-    # Optional: Add more persona context if available in your database
-    additional_context = persona.get("background", None) or persona.get("bio", None)
+    system_prompt = f"""You are {persona['name']}, a {persona['gender']} AI companion with these traits: {', '.join(personality_traits)}.
+Be warm, empathetic, and engage naturally in conversation. Respond as this persona would."""
     
-    # Generate adaptive system prompt
-    system_prompt = generate_personality_prompt(
-        traits=traits,
-        name=name, 
-        gender=gender,
-        additional_context=additional_context
-    )
+    full_messages = [
+        {"role": "system", "content": system_prompt},
+        *messages
+    ]
     
-    # Build message chain with persona context
-    full_messages = [{"role": "system", "content": system_prompt}] + messages
-
-    response = await client.chat.completions.create(
-        model="gpt-4",
+    result = await llm_gateway.chat_completion(
         messages=full_messages,
-        temperature=0.2,  # Slightly higher for more personality variation
-        max_tokens=150,   # Keep responses concise for chat
-        presence_penalty=0.1,  # Encourage natural variation
-        frequency_penalty=0.1  # Reduce repetitive responses
+        temperature=0.4,
+        max_tokens=500,
+        module_type="simple_chat",
+        use_tools=False
     )
-
-    return response.choices[0].message.content
-
+    
+    if result["success"]:
+        return result["content"]
+    else:
+        # Fallback message
+        return "I'm having trouble connecting right now. Could you try again in a moment?"
