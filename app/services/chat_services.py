@@ -12,12 +12,12 @@ async def get_user_chat_history(user_id: str, limit: int = 10) -> List[Dict]:
         result = supabase.table("chat_history")\
             .select("messages")\
             .eq("user_id", user_id)\
-            .single()\
             .execute()
         
-        if result.data and result.data.get("messages"):
+        if result.data and len(result.data) > 0:
             # Return last 'limit' messages
-            return result.data["messages"][-limit:]
+            messages = result.data[0].get("messages", [])
+            return messages[-limit:] if messages else []
         return []
         
     except Exception as e:

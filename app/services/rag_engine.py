@@ -201,6 +201,9 @@ def _retrieve_chunks_sync(query, top_k=3):
     coll = get_collection()
     count = coll.count()
     print(f"Collection has {count} documents")
+    if count == 0:  # ← ADD THIS
+        print("No documents in collection, returning empty list")
+        return []
     
     results = coll.query(
         query_texts=[query],  # Changed from query_embeddings
@@ -384,10 +387,11 @@ async def rag_query(
     history_context = f"\n{chat_history}\n" if chat_history else ""
     # Shorter, more focused prompt
     prompt = f"""
-You are **Desire AI**, the main assistant of ANAMCARA.
-
+You are **Desire**, the main assistant of ANAMCARA.
+Never mention you are an AI model.
+In response user these terms " Desire AI", " trusted AnamGuru", Not used assistant, and AI words like "trusted assistant", "Desire AI"
+Analyze the user query and then if the context is needed for response, use it and if not response directly from your knowledge.
 Follow these rules STRICTLY:
-
 1. Use ONLY the context and module descriptions provided.
 2. If the user's query maps to any module (via keywords or context), ALWAYS respond by:
    - Understanding user intent

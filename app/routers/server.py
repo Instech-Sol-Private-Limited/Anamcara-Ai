@@ -35,9 +35,10 @@ async def query(request: QueryRequest):
     
     # RAG query
     answer = await rag_query(request.query, chat_context)
+    is_error = answer.startswith("Error:")
 
     # Save (appends to existing row)
-    if request.user_id:
+    if request.user_id and not is_error:
         await save_chat_message(
             user_id=request.user_id,
             conversation_id=conversation_id,
@@ -48,9 +49,9 @@ async def query(request: QueryRequest):
     
     return QueryResponse(
         message=answer,
-        safety="ok",
+        safety="error" if is_error else "ok",
         conversation_id=conversation_id,
-        chat_history=chat_history_raw  # Already in correct format
+        chat_history=chat_history_raw
     )
 
 
