@@ -6,6 +6,7 @@ import numpy as np
 import json, os
 from pydantic import BaseModel
 from typing import Optional
+import requests
 router = APIRouter()
 
 from datetime import datetime
@@ -18,7 +19,8 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 supabase = get_client()
-
+# NEW: SDXL Server URL (GPU system ka IP aur port)
+SDXL_SERVER_URL = os.getenv("SDXL_SERVER_URL", "http://192.168.18.61:8001")
 # ------------------------------------------------
 # Load Ecosystem Knowledge Base
 # ------------------------------------------------
@@ -107,6 +109,150 @@ class TrackEvent(BaseModel):
     event: str
     page: Optional[str] = None
     metadata: Optional[dict] = None
+
+# ================================================
+# NEW: Image Generation Models and Endpoints
+# ================================================
+
+class ImageGenerationRequest(BaseModel):
+    user_id: str
+    prompt: str
+    negative_prompt: Optional[str] = "blurry, bad quality, distorted"
+    width: Optional[int] = 768
+    height: Optional[int] = 768
+    num_inference_steps: Optional[int] = 20
+    guidance_scale: Optional[float] = 7.5
+
+@router.post("/api/generate-image")
+async def generate_image(request: ImageGenerationRequest):
+    """
+    SDXL se image generate karein
+    """
+    try:
+        # Check if SDXL server is healthy
+        try:
+            health_check = requests.get(f"{SDXL_SERVER_URL}/health", timeout=5)
+            if health_check.status_code != 200:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Image generation service is currently unavailable"
+                )
+        except requests.exceptions.RequestException:
+            raise HTTPException(
+                status_code=503,
+                detail="Cannot connect to image generation service. Please ensure SDXL server is running."
+            )
+
+        # SDXL server ko request bhejein
+        response = requests.post(
+            f"{SDXL_SERVER_URL}/generate",
+            json={
+                "prompt": request.prompt,
+                "negative_prompt": request.negative_prompt,
+                "width": request.width,
+                "height": request.height,
+                "num_inference_steps": request.num_inference_steps,
+                "guidance_scale": request.guidance_scale
+            },
+            timeout=8000  # 2 minutes timeout (image generation slow ho sakti hai)
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Image generation failed: {response.text}"
+            )
+
+        result = response.json()
+
+        # User event track karein
+        supabase.table("user_events").insert({
+            "user_id": request.user_id,
+            "event": "image_generated",
+            "page": "image_generation",
+            "metadata": {"prompt": request.prompt},
+            "timestamp": datetime.utcnow().isoformat()
+        }).execute()
+
+        # Generated image ko database mein save karein (optional)
+        supabase.table("generated_images").insert({
+            "user_id": request.user_id,
+            "prompt": request.prompt,
+            "image_base64": result["image"],
+            "timestamp": datetime.utcnow().isoformat()
+        }).execute()
+
+        return {
+            "status": "success",
+            "user_id": request.user_id,
+            "image": result["image"],  # Base64 encoded image
+            "prompt": request.prompt,
+            "message": "Image generated successfully!"
+        }
+
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Image generation timed out. Please try again with simpler prompt or fewer steps."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating image: {str(e)}"
+        )
+
+@router.get("/api/user-images/{user_id}")
+async def get_user_images(user_id: str, limit: int = 10):
+    """
+    User ki previously generated images retrieve karein
+    """
+    try:
+        data = supabase.table("generated_images")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .order("timestamp", desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "images": data.data or [],
+            "count": len(data.data) if data.data else 0
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving images: {str(e)}"
+        )
+
+@router.get("/api/sdxl-health")
+async def check_sdxl_health():
+    """
+    SDXL server ki health check karein
+    """
+    try:
+        response = requests.get(f"{SDXL_SERVER_URL}/health", timeout=5)
+        if response.status_code == 200:
+            return {
+                "status": "healthy",
+                "sdxl_server": SDXL_SERVER_URL,
+                "message": "SDXL server is running"
+            }
+        else:
+            return {
+                "status": "unhealthy",
+                "sdxl_server": SDXL_SERVER_URL,
+                "message": "SDXL server is not responding properly"
+            }
+    except requests.exceptions.RequestException as e:
+        return {
+            "status": "down",
+            "sdxl_server": SDXL_SERVER_URL,
+            "message": f"Cannot connect to SDXL server: {str(e)}"
+        }
 
 # ------------------------------------------------
 # API Endpoints

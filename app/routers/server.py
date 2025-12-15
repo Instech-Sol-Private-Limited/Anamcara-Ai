@@ -8,7 +8,8 @@ from database.supabase_db import get_client
 from app.services.chat_services import (
     get_user_chat_history, 
     save_chat_message, 
-    format_chat_history_for_context
+    format_chat_history_for_context,
+    get_user_conversations
 )
 
 router = APIRouter()
@@ -20,40 +21,36 @@ async def query(request: QueryRequest):
     if s["flag"]:
         return QueryResponse(message=s["response"], safety=s["type"])
 
-    conversation_id = request.conversation_id or str(uuid.uuid4())
+    conversation_id = request.conversation_id or None  # None triggers new conversation
 
-    # Get chat history (already in correct format)
     chat_history_raw = []
     chat_context = ""
-    
-    if request.user_id:
-        chat_history_raw = await get_user_chat_history(
-            user_id=request.user_id,
-            limit=10
-        )
+
+    if request.user_id and conversation_id:
+        # Only fetch if existing conversation
+        chat_history_raw = await get_user_chat_history(user_id=request.user_id, conversation_id=conversation_id, limit=10)
         chat_context = format_chat_history_for_context(chat_history_raw, max_messages=5)
-    
-    # RAG query
+
+    # Run RAG query
     answer = await rag_query(request.query, chat_context)
     is_error = answer.startswith("Error:")
 
-    # Save (appends to existing row)
+    # Save message
     if request.user_id and not is_error:
-        await save_chat_message(
+        conversation_id = await save_chat_message(
             user_id=request.user_id,
             conversation_id=conversation_id,
             user_message=request.query,
             ai_message=answer,
             user_type=request.user_type
         )
-    
+
     return QueryResponse(
         message=answer,
         safety="error" if is_error else "ok",
         conversation_id=conversation_id,
         chat_history=chat_history_raw
     )
-
 
 @router.get("/api/history/{user_id}")
 async def get_history(user_id: str, limit: int = 20):
@@ -67,3 +64,18 @@ async def get_conversation(user_id: str, conversation_id: str):
     """Get specific conversation thread"""
     history = await get_user_chat_history(user_id, conversation_id=conversation_id)
     return {"conversation_id": conversation_id, "messages": history}
+
+@router.get("/api/conversations/{user_id}")
+async def get_conversations(user_id: str):
+    """
+    Get all conversations for a user_id.
+    Returns format:
+    [
+        {
+            "conversation_id": "xxxxxxxx",
+            "messages": [...]
+        }
+    ]
+    """
+    conversations = await get_user_conversations(user_id)
+    return {"user_id": user_id, "conversations": conversations, "count": len(conversations)}
