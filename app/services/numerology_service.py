@@ -249,6 +249,7 @@ Focus on making it feel uniquely tailored to them, not generic."""
 
 
 # Additional calculation functions (PRESERVED)
+
 def get_personal_year(dob: str, current_year: int = None) -> int:
     """Calculate Personal Year number for current or specified year"""
     if current_year is None:

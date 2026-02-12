@@ -33,3 +33,4 @@ Be warm, empathetic, and engage naturally in conversation. Respond as this perso
     else:
         # Fallback message
         return "I'm having trouble connecting right now. Could you try again in a moment?"
+    

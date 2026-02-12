@@ -1,12 +1,163 @@
 # routes/chat_routes.py
 from fastapi import APIRouter, HTTPException
-from models.schemas import ChatMessage, ChatResponse
+from models.schemas import ChatMessage, ChatResponse, ChatResponseModules, ChatRequest
 from app.services.openai_service import generate_chat_response
 from models.supabase_helpers import serialize_doc
 from database.supabase_db import get_client
 from datetime import datetime
+from typing import Optional, Dict, List
+import httpx
+import json
+from enum import Enum
+import os
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 router = APIRouter()
+supabase = get_client()
+
+
+# Module Knowledge Base
+MODULE_KNOWLEDGE = {
+    "divine": {
+        "name": "DIVINE (Divination AnamGuru)",
+        "description": "Ethereal AI entity for spiritual guidance, wisdom, and introspection",
+        "features": [
+            "Tarot Card Readings with dream symbolism integration",
+            "Daily Horoscopes based on zodiac signs with personalized insights",
+            "Numerology Analysis including Life Path Number calculations",
+            "Dream Interpretation to uncover hidden meanings",
+            "Astrological Reflections with birth chart analysis",
+            "Interactive Tarot Chat for guidance on specific situations"
+        ],
+        "capabilities": [
+            "Personalized tarot spreads (Single Card, Three Card, Relationship)",
+            "Virtual card draw simulation with contextual interpretations",
+            "Dream-to-Tarot linkage for deeper insights",
+            "Zodiac sign determination and daily horoscope delivery",
+            "Lucky numbers, colors, and compatibility readings",
+            "Life Path Number calculation using numerological reduction",
+            "Comprehensive personality trait analysis through numbers"
+        ],
+        "keywords": ["tarot", "horoscope", "astrology", "numerology", "dream", "divination", 
+                     "zodiac", "spiritual", "guidance", "cards", "fortune", "prediction",
+                     "birth chart", "life path", "mystical"]
+    },
+    
+    "athena": {
+        "name": "ATHENA (Intelligence, Mind & Challenge AnamGuru)",
+        "description": "Education and career development through brain tests and gamified knowledge battles",
+        "features": [
+            "AnamTests: 11 premium intelligence and personality tests",
+            "AnamClash: Real-time 1v1 quiz battles",
+            "SoulArena: Team-based quiz competitions (2v2 to 5v5)",
+            "IQ, EQ, and personality assessments with certificates",
+            "Cognitive and behavioral psychology tests",
+            "Academic skill tests (English, Math, Science)",
+            "Tech & Digital Literacy assessments"
+        ],
+        "capabilities": [
+            "Paid intelligence tests (1 AnamCoin per test)",
+            "Test results with badges and AnamCertificates",
+            "Public/private result visibility options",
+            "Filterable leaderboards by test type and score",
+            "Real-time quiz battles with customizable settings",
+            "Multiple game modes: Single Player vs ANAMCORE, 1v1, Team battles",
+            "Category-based challenges (Science, Math, History, Tech, Pop Culture)",
+            "Betting system with AnamCoins and AccessBonus",
+            "Tiebreak logic and rematch options"
+        ],
+        "available_tests": [
+            "IQ Test", "EQ Test", "Big Five Personality", 
+            "Cognitive & Behavioral Psychology", "English Skills Quiz",
+            "Math Logic Challenge", "Science IQ Test", 
+            "Tech & Digital Literacy", "General Knowledge",
+            "Soul Age Quiz", "Introvert-Extrovert Meter"
+        ],
+        "keywords": ["test", "iq", "eq", "intelligence", "quiz", "battle", "clash", 
+                     "education", "learning", "challenge", "competition", "brain",
+                     "personality", "cognitive", "knowledge", "arena", "exam"]
+    },
+    
+    "destiny": {
+        "name": "DESTINY (Matchmaking & Relationship AnamGuru)",
+        "description": "Matchmaking for meaningful emotional connections",
+        "features": [
+            "Destiny: Personalized ANAMCORE companion (ANAMCORE SoulMate)",
+            "Human Destiny: Matchmaking between real people",
+            "B2B Matchmaker API for external platform integration",
+            "Personality-adaptive ANAMCORE companions",
+            "Compatibility scoring with detailed reports",
+            "Icebreaker suggestions"
+        ],
+        "capabilities": [
+            "Companion creation with customizable traits and conversation styles",
+            "Photo upload with animated effects for ideal soulmate representation",
+            "Persistent memory system for personal details and stories",
+            "Daily care, compliments, and mood check-ins",
+            "11-question matchmaking questionnaire (Simple + Deep Learning)",
+            "1 free daily human match with additional purchases via AC/AB",
+            "Compatibility percentage and detailed match reports",
+            "Secure chat with mutual consent system",
+            "Integration with Level 1 AnamProfile verification",
+            "Modular algorithm reusable for SoulVibe feature"
+        ],
+        "keywords": ["match", "dating", "relationship", "love", "companion", "soulmate",
+                     "compatibility", "romance", "partner", "connection", "destiny",
+                     "ai companion", "matchmaking", "human match"]
+    },
+    
+    "lokaris": {
+        "name": "LOKARIS (Games & Entertainment)",
+        "description": "AR games, multiplayer experiences, and community-driven gaming",
+        "features": [
+            "AR-based interactive reality games",
+            "Multiplayer Chess with real-time PvP and Player vs AI",
+            "Arcade microgames (trivia, puzzle, reaction-based)",
+            "Team chess modes (2v2 up to 5v5)",
+            "Leaderboards and tournament systems",
+            "Game creator studio for user-generated content"
+        ],
+        "available_games": [
+            {
+                "name": "Om Nom Run",
+                "developer": "Famobi",
+                "category": "Endless Runner",
+                "description": "Join Om Nom on an exciting endless running adventure! Dodge obstacles, collect candies, and unlock power-ups in this fast-paced runner game."
+            },
+            {
+                "name": "Moto X3M Pool Party",
+                "developer": "Famobi",
+                "category": "Racing & Sports",
+                "description": "Rev up your engines for the ultimate summer racing adventure! Perform crazy stunts and tricks while racing through water parks and pool-themed tracks."
+            },
+            {
+                "name": "Thug Racer",
+                "developer": "Famobi",
+                "category": "Racing & Action",
+                "description": "Take control of powerful cars and dominate the streets in this intense urban racing game. Customize your vehicle, perform daring drifts, and outrun your opponents in thrilling city races."
+            }
+        ],
+        "capabilities": [
+            "Real-time multiplayer gaming with low latency",
+            "AR game overlays with WebXR integration",
+            "Chess tournaments with live streaming",
+            "Waging system with AnamCoins and AccessBonus",
+            "SoulPoints and rewards for gameplay",
+            "Cross-platform gaming (mobile-first, PWA-ready)",
+            "Anti-cheat and content moderation systems",
+            "Integration with SoulStream for live play",
+            "Achievement sharing to SoulFeed",
+            "Daily quests and stat tracking",
+            "Endless runner games with power-ups and collectibles",
+            "Racing games with stunt mechanics and customization",
+            "Urban racing with vehicle customization and drifting"
+        ],
+        "keywords": ["game", "chess", "play", "arcade", "ar", "multiplayer", "pvp",
+                     "tournament", "competition", "gaming", "entertainment", "fun",
+                     "battle", "arena", "lokaris", "racing", "runner", "om nom",
+                     "moto", "thug racer", "stunts", "drifts", "endless runner"]
+    }
+}
 
 @router.post("/", response_model=ChatResponse)
 async def chat(chat_message: ChatMessage):
@@ -157,3 +308,425 @@ async def delete_chat_thread(thread_id: str):
     except Exception as e:
         print(f"Error deleting chat thread: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete chat thread: {str(e)}")
+    
+
+# Supabase Database Handler
+class SupabaseHandler:
+    def __init__(self):
+        self.table_name = "chat_conversations_anamguru"
+    
+    async def get_conversation_history(self, user_id: str, module: str) -> List[Dict]:
+        """Retrieve conversation history for a specific user and module"""
+        try:
+            response = supabase.table(self.table_name).select("*").eq(
+                "user_id", user_id
+            ).eq("module", module).execute()
+            
+            if response.data and len(response.data) > 0:
+                # Return the conversation history JSON
+                return response.data[0].get("chat_conversations_anamguru", [])
+            else:
+                # No existing conversation, return empty list
+                return []
+                
+        except Exception as e:
+            print(f"Error retrieving conversation history: {str(e)}")
+            return []
+    
+    async def save_conversation(
+        self, 
+        user_id: str, 
+        module: str, 
+        new_message: Dict,
+        bot_response: str
+    ) -> bool:
+        """Save or update conversation in Supabase"""
+        try:
+            # Get existing conversation
+            existing = supabase.table(self.table_name).select("*").eq(
+                "user_id", user_id
+            ).eq("module", module).execute()
+            
+            # Prepare conversation messages
+            user_msg = {
+                "role": "user",
+                "content": new_message.get("content", ""),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            bot_msg = {
+                "role": "assistant",
+                "content": bot_response,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            if existing.data and len(existing.data) > 0:
+                # Update existing conversation (append new messages)
+                existing_history = existing.data[0].get("chat_conversations_anamguru", [])
+                existing_history.append(user_msg)
+                existing_history.append(bot_msg)
+                
+                # Keep only last 50 messages (25 exchanges) to prevent bloat
+                if len(existing_history) > 50:
+                    existing_history = existing_history[-50:]
+                
+                response = supabase.table(self.table_name).update({
+                    "chat_conversations_anamguru": existing_history,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("user_id", user_id).eq("module", module).execute()
+                
+            else:
+                # Create new conversation record
+                response = supabase.table(self.table_name).insert({
+                    "user_id": user_id,
+                    "module": module,
+                    "chat_conversations_anamguru": [user_msg, bot_msg],
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }).execute()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error saving conversation: {str(e)}")
+            return False
+    
+    async def get_all_user_conversations(self, user_id: str) -> List[Dict]:
+        """Get all conversations for a user across all modules"""
+        try:
+            response = supabase.table(self.table_name).select("*").eq(
+                "user_id", user_id
+            ).execute()
+            
+            return response.data if response.data else []
+            
+        except Exception as e:
+            print(f"Error retrieving user conversations: {str(e)}")
+            return []
+    
+    async def delete_conversation(self, user_id: str, module: str) -> bool:
+        """Delete conversation history for a specific user and module"""
+        try:
+            response = supabase.table(self.table_name).delete().eq(
+                "user_id", user_id
+            ).eq("module", module).execute()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting conversation: {str(e)}")
+            return False
+
+# Module Detection and RAG Logic
+class AnamcaraChatbot:
+    def __init__(self):
+        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.model = "gpt-4o"
+        self.api_key = OPENAI_API_KEY
+        self.db = SupabaseHandler()
+        
+    def detect_module(self, query: str) -> tuple[str, float]:
+        """Detect which module the query relates to using keyword matching"""
+        query_lower = query.lower()
+        scores = {}
+        
+        for module_id, module_data in MODULE_KNOWLEDGE.items():
+            score = 0
+            keywords = module_data["keywords"]
+            
+            for keyword in keywords:
+                if keyword in query_lower:
+                    score += 1
+            
+            # Boost score if module name is mentioned
+            if module_data["name"].lower() in query_lower or module_id in query_lower:
+                score += 5
+                
+            scores[module_id] = score
+        
+        # Get module with highest score
+        max_module = max(scores.items(), key=lambda x: x[1])
+        
+        # If no clear match, return general
+        if max_module[1] == 0:
+            return "general", 0.0
+        
+        # Calculate confidence (normalize to 0-1)
+        total_score = sum(scores.values())
+        confidence = max_module[1] / total_score if total_score > 0 else 0.0
+        
+        return max_module[0], confidence
+    
+    def build_context_prompt(self, module: str, query: str) -> str:
+        """Build RAG context from module knowledge"""
+        if module == "general":
+            context = "You are an AI assistant for Anamcara AI ecosystem. Here are the available modules:\n\n"
+            for mod_id, mod_data in MODULE_KNOWLEDGE.items():
+                context += f"**{mod_data['name']}**: {mod_data['description']}\n"
+                context += f"Key features: {', '.join(mod_data['features'][:3])}\n\n"
+            
+            context += "\nHelp the user understand which module would best serve their needs."
+            return context
+        
+        module_data = MODULE_KNOWLEDGE.get(module, {})
+        
+        context = f"""You are a guide for {module_data['name']}. Your role is to EXPLAIN and INFORM users about what this module offers, NOT to perform the actual services.
+
+**Description**: {module_data['description']}
+
+**Available Features**:
+{chr(10).join(f"- {feature}" for feature in module_data['features'])}
+
+**Capabilities**:
+{chr(10).join(f"- {cap}" for cap in module_data['capabilities'])}"""
+
+        if module == "lokaris" and "available_games" in module_data:
+            context += "\n\n**Available Games**:\n"
+            for game in module_data["available_games"]:
+                context += f"\n- **{game['name']}** by {game['developer']}\n"
+                context += f"  Category: {game['category']}\n"
+                context += f"  {game['description']}\n"
+
+        if module == "athena" and "available_tests" in module_data:
+            context += "\n\n**Available Tests**:\n"
+            for test in module_data["available_tests"]:
+                context += f"- {test}\n"
+
+        context += f"""
+
+**CRITICAL INSTRUCTIONS**:
+
+1. **YOU ARE A GUIDE, NOT A SERVICE PROVIDER**: 
+   - Do NOT ask users for personal information
+   - Do NOT attempt to provide actual services
+   - ONLY explain what features are available
+
+2. **YOUR RESPONSE SHOULD**:
+   - Explain what this module offers 
+   - Describe features and how users can access them
+   - Guide users on capabilities
+   - Use phrases like "This module offers...", "You can access...", "Available features include..."
+
+3. **IF USER ASKS FOR ACTUAL SERVICE**:
+   - Explain that you're a guide showing what's available, see what user asked for, and then reply accordingly
+   - Direct them to where they can access the actual service
+   - Example: "To get your horoscope, access the DIVINE horoscope feature where you'll provide your zodiac sign."
+
+4. **STAY WITHIN MODULE SCOPE**:
+   - Only discuss {module_data['name']} features
+   - Be specific about pricing when relevant
+   - Always answer within context, no external information
+
+Critical Info:
+   - In final response don't use asteriks in final response and response should properly formated like next line spaces.
+User Query: {query}
+
+
+Provide a helpful, informative guide response that explains what this module offers WITHOUT attempting to provide the actual service."""
+        
+        return context
+    
+    async def generate_response(
+        self, 
+        query: str, 
+        module: str, 
+        conversation_history: List[Dict[str, str]]
+    ) -> str:
+        """Generate response using OpenAI GPT-4o API"""
+        
+        system_prompt = self.build_context_prompt(module, query)
+        
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
+        
+        # Add conversation history (last 5 exchanges)
+        for msg in conversation_history[-10:]:
+            messages.append({
+                "role": msg.get("role", "user"),
+                "content": msg.get("content", "")
+            })
+        
+        messages.append({
+            "role": "user",
+            "content": query
+        })
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.api_key}"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "max_tokens": 1000,
+                        "temperature": 0.1
+                    }
+                )
+                
+                if response.status_code != 200:
+                    error_detail = response.json() if response.text else "Unknown error"
+                    return f"Error: Unable to generate response. Status: {response.status_code}. Details: {error_detail}"
+                
+                data = response.json()
+                
+                if "choices" in data and len(data["choices"]) > 0:
+                    response_text = data["choices"][0]["message"]["content"]
+                    return response_text.strip()
+                else:
+                    return "Error: No response generated"
+                
+        except Exception as e:
+            return f"Error generating response: {str(e)}"
+    
+    def get_related_features(self, module: str) -> List[str]:
+        """Get related features for the detected module"""
+        module_data = MODULE_KNOWLEDGE.get(module, {})
+        return module_data.get("features", [])[:5]
+    
+    def get_suggestions(self, module: str, query: str) -> List[str]:
+        """Generate follow-up suggestions"""
+        suggestions_map = {
+            "divine": [
+                "Try a tarot card reading",
+                "Get your daily horoscope",
+                "Calculate your Life Path Number",
+                "Interpret a recent dream"
+            ],
+            "athena": [
+                "Take an IQ test (1 AC)",
+                "Challenge someone in AnamClash",
+                "View leaderboards",
+                "Try the EQ assessment"
+            ],
+            "destiny": [
+                "Create your AI companion",
+                "Find your human match",
+                "Take the compatibility quiz",
+                "Set up your matchmaking profile"
+            ],
+            "lokaris": [
+                "Play multiplayer chess",
+                "Try AR mini-games",
+                "Join a tournament",
+                "Challenge a friend",
+                "Play Om Nom Run",
+                "Race in Moto X3M Pool Party",
+                "Compete in Thug Racer"
+            ],
+            "general": [
+                "Explore DIVINE for spiritual guidance",
+                "Try ATHENA for brain tests",
+                "Visit DESTINY for matchmaking",
+                "Play games in LOKARIS"
+            ]
+        }
+        
+        return suggestions_map.get(module, [])
+    
+# Initialize chatbot
+chatbot = AnamcaraChatbot()
+
+@router.post("/anamguru_chat", response_model=ChatResponseModules)
+async def chat(request: ChatRequest):
+    """Main chat endpoint with RAG-based routing and conversation persistence"""
+    
+    if not request.user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    
+    # Determine module
+    if request.module:
+        module_lower = request.module.lower()
+        if module_lower not in MODULE_KNOWLEDGE and module_lower != "general":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid module. Available modules: {', '.join(MODULE_KNOWLEDGE.keys())}"
+            )
+        detected_module = module_lower
+        confidence = 1.0
+    else:
+        detected_module, confidence = chatbot.detect_module(request.query)
+    
+    # Get conversation history from Supabase
+    conversation_history = await chatbot.db.get_conversation_history(
+        request.user_id, 
+        detected_module
+    )
+    
+    # Generate response
+    response_text = await chatbot.generate_response(
+        query=request.query,
+        module=detected_module,
+        conversation_history=conversation_history
+    )
+    
+    # Save conversation to Supabase
+    await chatbot.db.save_conversation(
+        user_id=request.user_id,
+        module=detected_module,
+        new_message={"content": request.query},
+        bot_response=response_text
+    )
+    
+    # Get features and suggestions
+    related_features = chatbot.get_related_features(detected_module)
+    suggestions = chatbot.get_suggestions(detected_module, request.query)
+    
+    # Create conversation ID
+    conversation_id = f"{request.user_id}_{detected_module}"
+    
+    return ChatResponseModules(
+        response=response_text,
+        detected_module=detected_module,
+        confidence=confidence,
+        related_features=related_features,
+        suggestions=suggestions,
+        conversation_id=conversation_id
+    )
+
+@router.get("/anam_guru_conversations/{user_id}")
+async def get_user_conversations(user_id: str):
+    """Get all conversations for a specific user"""
+    conversations = await chatbot.db.get_all_user_conversations(user_id)
+    
+    return {
+        "user_id": user_id,
+        "total_conversations": len(conversations),
+        "conversations": conversations
+    }
+
+@router.get("/anam_guru_conversations/{user_id}/{module}")
+async def get_conversation_by_module(user_id: str, module: str):
+    """Get conversation history for a specific user and module"""
+    if module not in MODULE_KNOWLEDGE and module != "general":
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    history = await chatbot.db.get_conversation_history(user_id, module)
+    
+    return {
+        "user_id": user_id,
+        "module": module,
+        "conversation_history": history,
+        "total_messages": len(history)
+    }
+
+@router.delete("/anam_guru_conversations/{user_id}/{module}")
+async def delete_conversation(user_id: str, module: str):
+    """Delete conversation history for a specific user and module"""
+    if module not in MODULE_KNOWLEDGE and module != "general":
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    success = await chatbot.db.delete_conversation(user_id, module)
+    
+    if success:
+        return {
+            "message": "Conversation deleted successfully",
+            "user_id": user_id,
+            "module": module
+        }
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete conversation")

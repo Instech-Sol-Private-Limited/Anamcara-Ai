@@ -2,7 +2,7 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Literal
 from enum import Enum
 
 class PersonalityTrait(BaseModel):
@@ -321,4 +321,58 @@ class QueryResponse(BaseModel):
     message: str
     safety: str = "ok"
     conversation_id: Optional[str] = None
-    chat_history: Optional[List[Message]] = None  # ✅ NEW: Return history
+    chat_history: Optional[List[Message]] = None  # NEW: Return history
+
+class ChatRequest(BaseModel):
+    user_id: str  # Required: Unique user identifier
+    query: str
+    module: Optional[str] = None
+    user_context: Optional[Dict] = {}
+
+
+class ChatResponseModules(BaseModel):
+    response: str
+    detected_module: str
+    confidence: float
+    related_features: List[str]
+    suggestions: Optional[List[str]] = []
+    conversation_id: str
+
+class ConversationHistoryResponse(BaseModel):
+    user_id: str
+    module: str
+    conversation_history: List[Dict]
+    total_messages: int
+    created_at: str
+    updated_at: str
+
+class ModuleType(str, Enum):
+    DIVINE = "divine"
+    ATHENA = "athena"
+    DESTINY = "destiny"
+    LOKARIS = "lokaris"
+    GENERAL = "general"
+
+PlatformType = Literal["youtube", "youtube_music"]
+
+class MediaItem(BaseModel):
+    id: str
+    title: str
+    description: Optional[str] = ""
+    tags: Optional[List[str]] = []
+    artist: Optional[str] = None
+    platform: PlatformType
+
+class SoulPlayRequest(BaseModel):
+    user_id: str
+    mood: str                  
+    tags: List[str]            
+    items: List[MediaItem]     
+
+class RankedMedia(MediaItem):
+    score: float
+
+class SoulPlayResponse(BaseModel):
+    mood: str
+    platform: PlatformType
+    recommendations: List[RankedMedia]

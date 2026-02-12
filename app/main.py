@@ -16,7 +16,7 @@ from app.routers.athena_routes import router as AthenaRouter
 from app.services.llm_gateway import llm_gateway
 from datetime import datetime
 from app.routers.server import router as Pageredirect
-
+from app.routers.soulplay import router as soulplay_router
 
 app = FastAPI(title="DIVINE AI - Spiritual Guide/AI SoulMate- Athena MCQ's")
 app.add_middleware(
@@ -39,6 +39,7 @@ app.include_router(SchedulerRouter, prefix="/api/scheduler")
 app.include_router(AthenaRouter, prefix="/api/athena")
 app.include_router(AIRecommendationRouter, prefix="/api/ai_recommendation")
 app.include_router(Pageredirect, prefix="/recommendation" )
+app.include_router(soulplay_router, prefix="/api/soulplay")
 @app.on_event("startup")
 async def startup():
     """Initialize database, scheduler, and LLM Gateway on startup"""
