@@ -228,7 +228,8 @@ async def ask_ollama_stream(model, prompt, timeout_seconds: int = 60):
     """
     Async streaming call to Ollama API - yields text chunks as they arrive
     """
-    url = "https://anamcara.ai/llama/api/generate"
+    # url = "https://anamcara.ai/llama/api/generate"
+    url = "http://192.168.18.61:11434/api/generate"
     
     async with _OLLAMA_SEMAPHORE:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -260,7 +261,9 @@ async def ask_ollama(model, prompt, timeout_seconds: int = 180, max_attempts: in
     Non-streaming version - collects full response
     Reduced timeout from 180s to 60s and attempts from 3 to 2
     """
-    url = "https://anamcara.ai/llama/api/generate"
+    # url = "https://anamcara.ai/llama/api/generate"
+    url = "http://192.168.18.61:11434/api/generate"
+
     backoff_base = 1
 
     async with _OLLAMA_SEMAPHORE:
