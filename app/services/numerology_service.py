@@ -38,6 +38,8 @@ def soul_urge(name):
 
 from app.services.llm_gateway import llm_gateway
 import asyncio
+import httpx
+import os
 from datetime import datetime
 
 # Core numerology calculation functions (PRESERVED - DO NOT CHANGE)
@@ -212,6 +214,7 @@ Focus on making it feel uniquely tailored to them, not generic."""
         ]
         
         try:
+            # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
             result = await llm_gateway.chat_completion(
                 messages=messages,
                 temperature=0.8,
@@ -222,18 +225,43 @@ Focus on making it feel uniquely tailored to them, not generic."""
             
             if result["success"]:
                 enhanced_reading = result["content"]
-                # Add subtle indicator of which provider was used (optional)
-                # You can remove this if you don't want to show it
-                # provider_note = ""
-                # if result["provider"] == "groq":
-                #     provider_note = " [Enhanced via Groq AI]"
-                # elif result["provider"] == "openai":
-                #     provider_note = " [Enhanced via OpenAI]"
-                
                 return enhanced_reading
-            else:
-                # AI failed - return base meaning
-                print(f" AI enhancement failed for {num_type}: {result.get('error')}")
+            
+            # TIER 3: Fallback to Local Llama3 Server
+            print(f" TIER 3: Falling back to local Llama3 for numerology enhancement...")
+            try:
+                ollama_url = os.getenv("OLLAMA_URL", "http://192.168.18.61:11434/api/generate")
+                model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+                
+                # Build Llama format prompt
+                llama_prompt = f"<|system|>\n{messages[0]['content']}<|end|>\n<|user|>\n{messages[1]['content']}<|end|>\n<|assistant|>"
+                
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(
+                        ollama_url,
+                        json={
+                            "model": model_name,
+                            "prompt": llama_prompt,
+                            "stream": False,
+                            "options": {
+                                "num_predict": 400,
+                                "temperature": 0.8,
+                            }
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    enhanced_reading = data.get("response", "").strip()
+                    
+                    if enhanced_reading:
+                        print(f" TIER 3 SUCCESS: Local Llama3 generated numerology reading")
+                        return enhanced_reading
+                    else:
+                        raise Exception("Empty response from Ollama")
+                        
+            except Exception as e:
+                print(f" TIER 3 FAILED: {str(e)}")
+                # Final fallback - return base meaning
                 return base_meaning
                 
         except Exception as e:

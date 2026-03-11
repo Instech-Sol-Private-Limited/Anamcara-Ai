@@ -4,6 +4,8 @@ from typing import List, Dict, Any
 import json
 import re
 import os
+import httpx
+import asyncio
 from dotenv import load_dotenv  
 from openai import OpenAI
 from app.services.llm_gateway import llm_gateway
@@ -52,7 +54,10 @@ def match_keywords_to_tarot(keywords: List[str], cards: List[dict]) -> List[str]
     return matches
 
 def interpret_with_gpt(dream: str, keywords: List[str], matches: List[str]) -> str:
-    """Use GPT to generate a cohesive dream interpretation."""
+    """
+    Generate dream interpretation with 3-tier fallback:
+    TIER 1: OpenAI → TIER 2: Groq → TIER 3: Local Llama3
+    """
     symbols_meanings = {k: dream_map.get(k, "") for k in keywords}
     prompt = f"""
     Dream: {dream}
@@ -64,16 +69,69 @@ def interpret_with_gpt(dream: str, keywords: List[str], matches: List[str]) -> s
     Please provide a structured, poetic, and insightful interpretation of this dream. 
     Connect the dream symbols to emotions, psychology, and possible real-life reflections.
     """
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",  # switch to "gpt-4o" if you want full GPT-4
-        messages=[
-            {"role": "system", "content": "You are a mystical dream interpreter who combines psychology and symbolism."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    return response.choices[0].message.content.strip()
+    
+    messages = [
+        {"role": "system", "content": "You are a mystical dream interpreter who combines psychology and symbolism."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    async def _interpret():
+        # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
+        result = await llm_gateway.chat_completion(
+            messages=messages,
+            temperature=0.7,
+            max_tokens=600,
+            module_type="dream_analysis",
+            use_tools=False
+        )
+        
+        if result["success"]:
+            return result["content"]
+        
+        # TIER 3: Fallback to Local Llama3 Server
+        print(f" TIER 3: Falling back to local Llama3 for dream interpretation...")
+        try:
+            ollama_url = os.getenv("OLLAMA_URL", "http://192.168.18.61:11434/api/generate")
+            model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+            
+            # Build Llama format prompt
+            llama_prompt = f"<|system|>\n{messages[0]['content']}<|end|>\n<|user|>\n{messages[1]['content']}<|end|>\n<|assistant|>"
+            
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    ollama_url,
+                    json={
+                        "model": model_name,
+                        "prompt": llama_prompt,
+                        "stream": False,
+                        "options": {
+                            "num_predict": 600,
+                            "temperature": 0.7,
+                        }
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                interpretation = data.get("response", "").strip()
+                
+                if interpretation:
+                    print(f" TIER 3 SUCCESS: Local Llama3 generated dream interpretation")
+                    return interpretation
+                else:
+                    raise Exception("Empty response from Ollama")
+                    
+        except Exception as e:
+            print(f" TIER 3 FAILED: {str(e)}")
+            # Final fallback message
+            return "The dream symbols are quiet right now. Please try again in a moment."
+    
+    # Run async function synchronously
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_interpret())
+    else:
+        return loop.run_until_complete(_interpret())
 
 
 async def enhance_matches_with_ai(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -149,7 +207,7 @@ Make the response natural, specific, and personalized based on their actual prof
                     }
                 ]
                 
-                # Use LLM Gateway with fallback (OpenAI → Groq)
+                # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
                 result = await llm_gateway.chat_completion(
                     messages=messages,
                     temperature=0.4,
@@ -158,10 +216,46 @@ Make the response natural, specific, and personalized based on their actual prof
                     use_tools=False
                 )
                 
+                ai_response = None
                 if result["success"]:
                     ai_response = result["content"]
-                    
-                    # Try to extract and parse JSON
+                else:
+                    # TIER 3: Fallback to Local Llama3 Server
+                    print(f" TIER 3: Falling back to local Llama3 for match enhancement...")
+                    try:
+                        ollama_url = os.getenv("OLLAMA_URL", "http://192.168.18.61:11434/api/generate")
+                        model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+                        
+                        # Build Llama format prompt
+                        llama_prompt = f"<|system|>\n{messages[0]['content']}<|end|>\n<|user|>\n{messages[1]['content']}<|end|>\n<|assistant|>"
+                        
+                        async with httpx.AsyncClient(timeout=60.0) as client:
+                            resp = await client.post(
+                                ollama_url,
+                                json={
+                                    "model": model_name,
+                                    "prompt": llama_prompt,
+                                    "stream": False,
+                                    "options": {
+                                        "num_predict": 1500,
+                                        "temperature": 0.4,
+                                    }
+                                },
+                            )
+                            resp.raise_for_status()
+                            data = resp.json()
+                            ai_response = data.get("response", "").strip()
+                            
+                            if not ai_response:
+                                raise Exception("Empty response from Ollama")
+                            print(f" TIER 3 SUCCESS: Local Llama3 generated match insights")
+                                
+                    except Exception as e:
+                        print(f" TIER 3 FAILED: {str(e)}")
+                        ai_response = None
+                
+                # Parse JSON response
+                if ai_response:
                     try:
                         # Clean the response and parse JSON
                         ai_response = ai_response.strip()
@@ -183,8 +277,8 @@ Make the response natural, specific, and personalized based on their actual prof
                         else:
                             ai_insights = get_fallback_insights()
                 else:
-                    # LLM Gateway failed (all providers down)
-                    print(f"⚠️ AI enhancement failed for {match.get('name')}: {result.get('error')}")
+                    # All tiers failed
+                    print(f"⚠️ All AI providers failed for {match.get('name')}")
                     ai_insights = get_fallback_insights()
                 
                 # Build enhanced match object

@@ -1,6 +1,8 @@
 from app.services.llm_gateway import llm_gateway
 import asyncio
 import random
+import httpx
+import os
 from typing import List, Dict, Tuple
 
 # Storage for readings (PRESERVED)
@@ -224,6 +226,7 @@ Write 4-6 paragraphs with depth and nuance."""
         ]
         
         try:
+            # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
             result = await llm_gateway.chat_completion(
                 messages=messages,
                 temperature=0.8,
@@ -242,9 +245,47 @@ Write 4-6 paragraphs with depth and nuance."""
                     "enhanced": True,
                     "querent": name
                 }
-            else:
-                # AI failed - return basic interpretation
-                print(f" Tarot AI enhancement failed: {result.get('error')}")
+            
+            # TIER 3: Fallback to Local Llama3 Server
+            print(f" TIER 3: Falling back to local Llama3 for tarot summary...")
+            try:
+                ollama_url = os.getenv("OLLAMA_URL", "http://192.168.18.61:11434/api/generate")
+                model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+                
+                # Build Llama format prompt
+                llama_prompt = f"<|system|>\n{messages[0]['content']}<|end|>\n<|user|>\n{messages[1]['content']}<|end|>\n<|assistant|>"
+                
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    resp = await client.post(
+                        ollama_url,
+                        json={
+                            "model": model_name,
+                            "prompt": llama_prompt,
+                            "stream": False,
+                            "options": {
+                                "num_predict": 800,
+                                "temperature": 0.8,
+                            }
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    summary_text = data.get("response", "").strip()
+                    
+                    if summary_text:
+                        print(f" TIER 3 SUCCESS: Local Llama3 generated tarot summary")
+                        return {
+                            "summary": summary_text,
+                            "provider": "ollama_llama3",
+                            "enhanced": True,
+                            "querent": name
+                        }
+                    else:
+                        raise Exception("Empty response from Ollama")
+                        
+            except Exception as e:
+                print(f" TIER 3 FAILED: {str(e)}")
+                # Final fallback - return basic interpretation
                 return {
                     "summary": get_basic_tarot_summary(cards_output),
                     "provider": "fallback",

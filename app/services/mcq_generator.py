@@ -17,6 +17,7 @@ from models.schemas import MCQQuestion, MCQOption
 import asyncio
 from app.services.llm_gateway import llm_gateway
 import re
+import httpx
 
 client = get_client()
 
@@ -248,8 +249,8 @@ async def generate_mcq_questions(subject: str, student_name: str, student_email:
     Generate 20 MCQ questions with three-tier fallback system:
     
     TIER 1: LangChain Agent with OpenAI (gpt-4o) - Best quality, uses tools
-    TIER 2: Simple OpenAI (gpt-4o-mini) - Good quality, direct prompt
-    TIER 3: Groq (llama-3.3-70b) - Fast fallback, always available
+    TIER 2: Groq (llama-3.3-70b) - Fast fallback
+    TIER 3: Ollama Llama3 - Local fallback, always available
     
     Returns:
         tuple: (test_id, questions_list)
@@ -258,14 +259,14 @@ async def generate_mcq_questions(subject: str, student_name: str, student_email:
     test_id = str(uuid.uuid4())
     
     # ========================================================================
-    # TIER 1: Try Agent-Based Generation (Best Quality)
+    # TIER 1: Try Agent-Based Generation (OpenAI)
     # ========================================================================
     try:
-        print(f" TIER 1: Attempting Agent-based generation for {subject}...")
+        print(f" TIER 1: Attempting Agent-based generation (OpenAI) for {subject}...")
         questions = await generate_with_agent(subject, student_name, test_id, student_email)
         
         if questions and len(questions) >= 20:
-            print(f" TIER 1 SUCCESS: Agent generated {len(questions)} questions")
+            print(f" TIER 1 SUCCESS: OpenAI Agent generated {len(questions)} questions")
             return test_id, questions
             
     except Exception as e:
@@ -279,28 +280,28 @@ async def generate_mcq_questions(subject: str, student_name: str, student_email:
             print(f"   Reason: {error_msg[:100]}...")
     
     # ========================================================================
-    # TIER 2: Simple OpenAI Fallback (Good Quality)
+    # TIER 2: Groq Fallback
     # ========================================================================
     try:
-        print(f" TIER 2: Falling back to Simple OpenAI generation...")
-        questions = await generate_simple_openai(subject, student_name, test_id, student_email)
+        print(f" TIER 2: Falling back to Groq generation...")
+        questions = await generate_with_groq(subject, student_name, test_id, student_email)
         
         if questions and len(questions) >= 20:
-            print(f" TIER 2 SUCCESS: Simple OpenAI generated {len(questions)} questions")
+            print(f" TIER 2 SUCCESS: Groq generated {len(questions)} questions")
             return test_id, questions
             
     except Exception as e:
         print(f" TIER 2 FAILED: {str(e)}")
     
     # ========================================================================
-    # TIER 3: Groq Fallback (Fast, Always Available)
+    # TIER 3: Ollama Llama3 Fallback (Local, Always Available)
     # ========================================================================
     try:
-        print(f" TIER 3: Final fallback to Groq generation...")
-        questions = await generate_with_groq(subject, student_name, test_id, student_email)
+        print(f" TIER 3: Final fallback to Ollama Llama3 generation...")
+        questions = await generate_with_ollama_llama3(subject, student_name, test_id, student_email)
         
         if questions and len(questions) >= 20:
-            print(f" TIER 3 SUCCESS: Groq generated {len(questions)} questions")
+            print(f" TIER 3 SUCCESS: Ollama Llama3 generated {len(questions)} questions")
             return test_id, questions
             
     except Exception as e:
@@ -608,3 +609,123 @@ Start output with '[' and end with ']'. Generate NOW:"""
         
     except Exception as e:
         raise Exception(f"Groq generation failed: {str(e)}")
+
+
+# ============================================================================
+# TIER 3: Ollama Llama3 Fallback Generation (Local, Always Available)
+# ============================================================================
+
+async def generate_with_ollama_llama3(subject: str, student_name: str, test_id: str, student_email: str = None):
+    """
+    TIER 3: Ollama Llama3 generation (Local fallback)
+    """
+    
+    # Get guidelines for the subject
+    guidelines = get_subject_guidelines_tool(subject)
+    
+    prompt = f"""Generate EXACTLY 20 multiple-choice questions for a {subject} test.
+
+SUBJECT GUIDELINES:
+{guidelines}
+
+CRITICAL FORMAT - Follow EXACTLY:
+Output ONLY a JSON array. No other text, no markdown, no code blocks.
+
+[
+  {{
+    "question": "Question text",
+    "options": {{
+      "A": "Option A",
+      "B": "Option B",
+      "C": "Option C",
+      "D": "Option D"
+    }},
+    "answer": "A"
+  }},
+  ... (repeat for 20 questions total)
+]
+
+Start output with '[' and end with ']'. Generate NOW:"""
+    
+    # Ollama API URL
+    ollama_url = os.getenv("OLLAMA_URL", "http://192.168.18.61:11434/api/generate")
+    model_name = os.getenv("OLLAMA_MODEL", "llama3.2")
+    
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                ollama_url,
+                json={
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": 4000,
+                        "temperature": 0.7,
+                        "top_p": 0.9,
+                    }
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data.get("response", "").strip()
+        
+        # Clean up response
+        content = content.replace("```json", "").replace("```", "").strip()
+        
+        # Find JSON array
+        start_idx = content.find('[')
+        end_idx = content.rfind(']') + 1
+        
+        if start_idx != -1 and end_idx > start_idx:
+            json_str = content[start_idx:end_idx]
+            questions_data = json.loads(json_str)
+        else:
+            raise ValueError("No JSON array found in response")
+        
+        # Validate
+        if not isinstance(questions_data, list):
+            raise ValueError("Response is not a JSON array")
+        
+        if len(questions_data) < 20:
+            raise ValueError(f"Only generated {len(questions_data)} questions")
+        
+        # Take exactly 20
+        questions_data = questions_data[:20]
+        
+        # Validate structure
+        for i, q in enumerate(questions_data, 1):
+            if not all(key in q for key in ["question", "options", "answer"]):
+                raise ValueError(f"Question {i} missing required fields")
+        
+        # Store in database
+        storage_success = store_questions_to_db(
+            test_id=test_id,
+            subject=subject,
+            student_name=student_name,
+            student_email=student_email,
+            questions_data=questions_data,
+            generation_method="ollama_llama3_fallback"
+        )
+        
+        if not storage_success:
+            raise Exception("Failed to store questions in database")
+        
+        # Convert to MCQQuestion objects
+        questions = []
+        for i, q in enumerate(questions_data, 1):
+            question = MCQQuestion(
+                question_id=i,
+                question=q["question"],
+                options=MCQOption(**q["options"])
+            )
+            questions.append(question)
+        
+        return questions
+        
+    except httpx.ConnectError:
+        raise Exception("Ollama server is not running or not reachable")
+    except httpx.TimeoutException:
+        raise Exception("Ollama request timed out")
+    except Exception as e:
+        raise Exception(f"Ollama Llama3 generation failed: {str(e)}")

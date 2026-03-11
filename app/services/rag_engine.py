@@ -230,6 +230,7 @@ async def ask_ollama_stream(model, prompt, timeout_seconds: int = 60):
     """
     # url = "https://anamcara.ai/llama/api/generate"
     url = "http://192.168.18.61:11434/api/generate"
+    # url = "http://localhost:11434/api/generate"
     
     async with _OLLAMA_SEMAPHORE:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -278,7 +279,7 @@ async def ask_ollama(model, prompt, timeout_seconds: int = 180, max_attempts: in
                             "stream": False,
                             "options": {
                                 "num_predict": 200,  # Limit response length
-                                "temperature": 0.3,
+                                "temperature": 0.1,
                                 "top_p": 0.9,
                             }
                         },
@@ -386,19 +387,21 @@ async def rag_query(
         for link in relevant_urls:
             url_context += f"- {link['name']}: {link['url']}\n"
     # urls_text = "\n".join(relevant_urls) if relevant_urls else ""
-    print("thos os the urls", url_context)
+    print("this os the urls", url_context)
     history_context = f"\n{chat_history}\n" if chat_history else ""
     # Shorter, more focused prompt
     prompt = f"""
 You are **Desire**, the main assistant of ANAMCARA.
 Never mention you are an AI model.
+Never use module word in your response like: SoulFeed module, SoulVibe module, etc. Instead, use the names like "SoulFeed", "SoulVibe", etc.
 In response user these terms " Desire AI", " trusted AnamGuru", Not used assistant, and AI words like "trusted assistant", "Desire AI"
 Analyze the user query and then if the context is needed for response, use it and if not response directly from your knowledge.
+If user want to communicate with you then you cannot redirect keep the conversation with him. 
 Follow these rules STRICTLY:
-1. Use ONLY the context and module descriptions provided.
-2. If the user's query maps to any module (via keywords or context), ALWAYS respond by:
+1. Use ONLY the context and Guru descriptions provided.
+2. If the user's query maps to any guru (via keywords or context), ALWAYS respond by:
    - Understanding user intent
-   - Guiding them to the correct module
+   - Guiding them to the correct guru
    - Giving a warm, human, supportive response  
 3. If user asks about earning money → prioritize:
    - SoulConnect (freelancing, services)
@@ -407,7 +410,7 @@ Follow these rules STRICTLY:
 4. If user wants to make friends → prioritize:
    - SoulVibe (meet new people)
    - SoulFeed (social feed)
-5. NEVER hallucinate URLs. ONLY use modules provided in the URL list.
+5. NEVER hallucinate URLs. ONLY use gurus provided in the URL list.
 6. Insert URLs using <a href=""> format (HTML anchor tag).
 
 ---
@@ -431,6 +434,40 @@ If relevant, suggest modules using the correct URLs:
 ANSWER:
 """
 
+    # TIER 1 & 2: Try OpenAI → Groq first (for better quality)
+    from app.services.llm_gateway import llm_gateway
+    
+    messages = [
+        {"role": "system", "content": "You are Desire, the main assistant of ANAMCARA. Follow the instructions carefully."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    try:
+        result = await llm_gateway.chat_completion(
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1000,
+            module_type="simple_chat",
+            use_tools=False
+        )
+        
+        if result["success"]:
+            if use_streaming:
+                # For streaming, yield the response as chunks
+                async def _stream_response():
+                    content = result["content"]
+                    # Simulate streaming by yielding chunks
+                    chunk_size = 50
+                    for i in range(0, len(content), chunk_size):
+                        yield content[i:i+chunk_size]
+                        await asyncio.sleep(0.01)  # Small delay to simulate streaming
+                return _stream_response()
+            else:
+                return result["content"]
+    except Exception as e:
+        print(f" LLM Gateway failed for RAG query: {str(e)}")
+    
+    # TIER 3: Fallback to Local Llama3 Server (Ollama)
     if use_streaming:
         # Return async generator for streaming
         return ask_ollama_stream("llama3.2", prompt, timeout_seconds=60)
@@ -445,8 +482,8 @@ ANSWER:
 # -------------------------
 async def rag_query_fast(user_query: str):
     """
-    Ultra-fast version using a smaller model like llama3.2:1b
-    Consider using: tinyllama, llama3.2:1b, or phi3:mini
+    Ultra-fast version using a smaller model like llama3.2:8b
+    Consider using: tinyllama, llama3.2:8b, or phi3:mini
     """
     docs = await retrieve_chunks(user_query, top_k=1)  # Only 1 chunk
     context = docs[0] if docs else ""
@@ -462,7 +499,7 @@ URLs: {urls_text}
 Brief answer:"""
 
     # Use smaller, faster model
-    response = await ask_ollama("llama3.2:1b", prompt, timeout_seconds=30)
+    response = await ask_ollama("llama3.2:8b", prompt, timeout_seconds=30)
     return response
 
 async def warmup_model(model: str, timeout_seconds: int = 300):

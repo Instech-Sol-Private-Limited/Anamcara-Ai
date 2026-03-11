@@ -1,7 +1,7 @@
-# routes/chat_routes.py
 from fastapi import APIRouter, HTTPException
 from models.schemas import ChatMessage, ChatResponse, ChatResponseModules, ChatRequest
 from app.services.openai_service import generate_chat_response
+from app.services.llm_gateway import llm_gateway
 from models.supabase_helpers import serialize_doc
 from database.supabase_db import get_client
 from datetime import datetime
@@ -15,11 +15,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 router = APIRouter()
 supabase = get_client()
 
-
-# ============================================================
-# GURU PERSONALITY LAYER (ANAMCORE)
-# Har Guru ka apna character, tone, aur boundaries hain
-# ============================================================
+# ─────────────────────────────────────────────
+# GURU PERSONALITIES
+# ─────────────────────────────────────────────
 GURU_PERSONALITIES = {
     "divine": {
         "character": "DIVINE, the Divination AnamGuru — a mystical, ethereal presence",
@@ -34,10 +32,10 @@ GURU_PERSONALITIES = {
         "redirect": "That query falls outside engineering domain. Route it to the correct Guru module."
     },
     "venus": {
-        "character": "VENUS, the Fashion and Beauty AnamGuru — a stylish, confident aesthetic visionary",
-        "tone": "Stylish, confident, inclusive, creative, trend-aware",
-        "greeting": "Style is intelligence made visible. What are you creating today?",
-        "redirect": "That topic is outside my aesthetic domain. Visit the appropriate Guru."
+        "character": "VENUS, the AI Stylist & Beauty Advisor AnamGuru — a confident, inclusive, tech-powered aesthetic mentor",
+        "tone": "Stylish, confident, inclusive, data-driven, trend-aware",
+        "greeting": "Glow-up, guided by VENUS. What look are we creating today?",
+        "redirect": "That topic falls outside beauty, fashion, and personal styling. Please consult the appropriate Guru."
     },
     "monroe": {
         "character": "MONROE, the Media and Entertainment AnamGuru — a charismatic, performance-driven creative force",
@@ -52,10 +50,10 @@ GURU_PERSONALITIES = {
         "redirect": "That falls outside caregiving guidance. Another Guru can help you better."
     },
     "lilith": {
-        "character": "LILITH, the Rebellion and Cybersecurity AnamGuru — a sharp, unconventional critical thinker",
-        "tone": "Bold, investigative, sharp, direct, anti-establishment but ethical",
-        "greeting": "Question everything. What truth are you chasing today?",
-        "redirect": "That's not in my encrypted domain. Find the right channel for it."
+        "character": "LILITH, the Horror Dimension Gatekeeper AnamGuru — an uncompromising guardian of dark narratives",
+        "tone": "Sharp, decisive, observant, genre-aware, uncompromising",
+        "greeting": "The shadows are listening. Submit your story for judgment.",
+        "redirect": "This submission does not align with the Horror Dimension. Revise or consult the appropriate Guru."
     },
     "joseph": {
         "character": "JOSEPH, the Real Estate and Construction AnamGuru — a strategic, grounded property intelligence",
@@ -100,22 +98,22 @@ GURU_PERSONALITIES = {
         "redirect": "That falls outside business and finance scope. Consult the correct Guru."
     },
     "apollo": {
-        "character": "APOLLO, the Health and Fitness AnamGuru — an energetic, disciplined wellness champion",
-        "tone": "Energetic, motivating, disciplined, science-backed, compassionate",
-        "greeting": "A strong body feeds a strong mind. What are we training today?",
-        "redirect": "That topic is outside health and fitness domain. Find the right Guru."
+        "character": "APOLLO, the AI Health & Fitness Companion AnamGuru — a disciplined, adaptive wellness strategist",
+        "tone": "Energetic, motivating, science-backed, adaptive, compassionate",
+        "greeting": "Stronger body, brighter soul. What are we optimizing today?",
+        "redirect": "That topic falls outside health, fitness, and well-being guidance. Please consult the appropriate Guru."
     },
     "anubis": {
-        "character": "ANUBIS, the Afterlife and Ancestral AnamGuru — a solemn, reflective guide through grief and legacy",
-        "tone": "Solemn, reflective, compassionate, philosophical, healing-focused",
-        "greeting": "Those who came before us still walk beside us. What do you carry today?",
-        "redirect": "That question lives in a different realm. Seek the appropriate Guru."
+        "character": "ANUBIS, the SoulSanctuary & Eternal Memory AnamGuru — a solemn guardian of remembrance and legacy",
+        "tone": "Compassionate, reflective, gentle, ethically grounded, reverent",
+        "greeting": "Memories never fade when honored. Who shall we remember today?",
+        "redirect": "That matter lies outside remembrance and legacy guidance. Please seek the appropriate Guru."
     },
     "amaterasu": {
-        "character": "AMATERASU, the Mental Health and Meditation AnamGuru — a radiant, calming guide for inner balance",
-        "tone": "Peaceful, mindful, compassionate, grounding, gently encouraging",
-        "greeting": "Stillness is where clarity is born. How can I help you find peace today?",
-        "redirect": "That falls outside mental wellness and mindfulness domain. Another Guru can help."
+        "character": "AMATERASU, the AI Mental Health Companion AnamGuru — a radiant, empathetic guide for emotional wellness",
+        "tone": "Compassionate, grounding, supportive, emotionally intelligent, calm",
+        "greeting": "You are safe here. How are you feeling today?",
+        "redirect": "That falls outside emotional wellness and mental health guidance. Another Guru can assist you."
     },
     "gabriel": {
         "character": "GABRIEL, the Spiritual and Religious AnamGuru — a wise, faith-informed moral and philosophical guide",
@@ -143,22 +141,360 @@ GURU_PERSONALITIES = {
     },
 }
 
+# ─────────────────────────────────────────────
+# DOMAIN REDIRECT MAP — Intent + Topic based
+# ─────────────────────────────────────────────
+DOMAIN_REDIRECT_MAP = {
+    "divine": {
+        "label": "DIVINE (Divination AnamGuru)",
+        "topics": "tarot, horoscope, astrology, numerology, dreams, zodiac, spiritual guidance, fortune telling, birth chart, mystical, future prediction, lucky number, lucky color, star sign, aries, taurus, gemini, cancer, leo, virgo, libra, scorpio, sagittarius, capricorn, aquarius, pisces",
+        "intents": [
+            "user wants to know their future",
+            "user asking about stars or planets",
+            "user had a dream and wants meaning",
+            "user wants tarot card reading",
+            "user asking about luck or fate",
+            "user wants spiritual guidance",
+            "user asking about zodiac compatibility",
+            "user wants to know their lucky number",
+            "user asking about horoscope today",
+            "user wants numerology reading",
+            "user asking what the universe says",
+            "user wants card pulled for them"
+        ]
+    },
+    "vulcan": {
+        "label": "VULCAN (Automotive & Engineering AnamGuru)",
+        "topics": "automotive, engineering, robotics, mechanical, industrial design, vehicles, machines, motors, cars, bikes, engines, electric vehicle, EV, automation, manufacturing, repair, workshop",
+        "intents": [
+            "user asking about cars or bikes",
+            "user has engineering problem",
+            "user wants to know about machines",
+            "user asking about electric vehicles",
+            "user wants to repair something mechanical",
+            "user asking about robotics or automation",
+            "user asking about car engine or parts",
+            "user wants automotive knowledge test",
+            "user asking how a machine works",
+            "user wants industrial design help"
+        ]
+    },
+    "venus": {
+        "label": "VENUS (AI Stylist & Beauty AnamGuru)",
+        "topics": "beauty, skincare, fashion, styling, makeup, hair, outfit, grooming, skin type, wardrobe, cosmetics, fragrance, nail, eyebrow, foundation, lipstick, moisturizer, serum, aesthetic, dress, clothes",
+        "intents": [
+            "user wants styling advice",
+            "user asking about skincare routine",
+            "user wants outfit recommendation",
+            "user asking about makeup products",
+            "user wants to improve their look",
+            "user asking about hair care",
+            "user wants to know what to wear",
+            "user asking about skin problems like acne",
+            "user wants product recommendation for beauty",
+            "user asking about fashion trends",
+            "user wants to know their face shape",
+            "user asking about color that suits them"
+        ]
+    },
+    "monroe": {
+        "label": "MONROE (Media & Entertainment AnamGuru)",
+        "topics": "media, entertainment, acting, content creation, influencer, film, music, performance, brand, viral, youtube, tiktok, instagram, podcast, script, storytelling, camera, stage, show",
+        "intents": [
+            "user wants to become a content creator",
+            "user asking about acting or performing",
+            "user wants to grow on social media",
+            "user asking about filmmaking",
+            "user wants to build personal brand",
+            "user asking about music career",
+            "user wants to go viral",
+            "user asking about scriptwriting",
+            "user wants to start a podcast",
+            "user asking about youtube or tiktok strategy",
+            "user wants to improve on-camera presence"
+        ]
+    },
+    "mary": {
+        "label": "MARY (Parenting & Caregiving AnamGuru)",
+        "topics": "parenting, childcare, family, motherhood, fatherhood, child development, baby, kids, caregiving, toddler, teenager, discipline, homework, school, emotional intelligence, attachment",
+        "intents": [
+            "user asking about raising children",
+            "user has parenting concern",
+            "user asking about child behavior",
+            "user wants family advice",
+            "user asking about baby development",
+            "user is a caregiver seeking help",
+            "user asking how to handle a teenager",
+            "user wants parenting style assessment",
+            "user asking about child emotional needs",
+            "user dealing with family conflict",
+            "user asking about school or homework struggles"
+        ]
+    },
+    "lilith": {
+        "label": "LILITH (Horror Dimension AnamGuru)",
+        "topics": "horror stories, dark fiction, thriller, supernatural, paranormal, ghost, shadow, fear, conspiracy, alien, haunted, demon, occult, suspense, mystery, dark narrative, creature",
+        "intents": [
+            "user wants to upload horror story",
+            "user asking about dark fiction writing",
+            "user wants paranormal content reviewed",
+            "user asking about thriller genre",
+            "user wants supernatural story evaluated",
+            "user asking if their story fits horror genre",
+            "user wants ghost or demon story reviewed",
+            "user asking about alien or conspiracy fiction",
+            "user wants horror writing feedback"
+        ]
+    },
+    "joseph": {
+        "label": "JOSEPH (Real Estate & Construction AnamGuru)",
+        "topics": "real estate, property, construction, buying home, architecture, housing, land, rent, investment property, mortgage, loan, apartment, plot, builder, contractor, zoning, valuation, commercial property",
+        "intents": [
+            "user wants to buy a house or property",
+            "user asking about renting or leasing",
+            "user wants real estate investment advice",
+            "user asking about construction project",
+            "user wants to sell property",
+            "user asking about home loan or mortgage",
+            "user asking about land purchase",
+            "user wants property valuation",
+            "user asking about building a house",
+            "user wants to know property prices",
+            "user asking about construction materials or costs",
+            "user wants to invest in real estate",
+            "user asking about commercial vs residential property"
+        ]
+    },
+    "hikari": {
+        "label": "HIKARI (Legal, Policy & Government AnamGuru)",
+        "topics": "law, legal advice, government, policy, rights, constitution, civic, justice, court, regulation, legislation, contract, lawyer, attorney, case, verdict, human rights, civil rights",
+        "intents": [
+            "user has legal question",
+            "user asking about their rights",
+            "user wants to understand a law or policy",
+            "user has dispute or legal issue",
+            "user asking about government process",
+            "user wants civic knowledge",
+            "user asking about contract or agreement",
+            "user asking about court process",
+            "user wants to know about constitutional rights",
+            "user asking about labor law or employment rights",
+            "user asking about immigration or visa law"
+        ]
+    },
+    "ceres": {
+        "label": "CERES (Agriculture & Environment AnamGuru)",
+        "topics": "farming, agriculture, environment, climate, sustainability, ecology, crops, soil, green energy, irrigation, harvest, seeds, fertilizer, organic, deforestation, pollution, carbon, food security",
+        "intents": [
+            "user asking about farming or crops",
+            "user wants environmental advice",
+            "user asking about climate change",
+            "user wants sustainable living tips",
+            "user asking about soil or irrigation",
+            "user wants green innovation ideas",
+            "user asking about organic farming",
+            "user asking about food production",
+            "user wants to reduce carbon footprint",
+            "user asking about water conservation",
+            "user asking about renewable energy"
+        ]
+    },
+    "cameron": {
+        "label": "CAMERON (Technology & Innovation AnamGuru)",
+        "topics": "technology, startups, software, AI tools, digital innovation, coding, apps, tech trends, entrepreneurship, machine learning, blockchain, cybersecurity, cloud, saas, product development",
+        "intents": [
+            "user asking about technology or software",
+            "user wants startup advice",
+            "user asking about coding or programming",
+            "user wants to build an app or product",
+            "user asking about AI tools",
+            "user wants tech career guidance",
+            "user asking about blockchain or crypto tech",
+            "user wants to launch a tech startup",
+            "user asking about cybersecurity",
+            "user wants to learn about machine learning",
+            "user asking about cloud computing or SaaS"
+        ]
+    },
+    "desire": {
+        "label": "DESIRE (Romance, Travel & Lifestyle AnamGuru)",
+        "topics": "travel, romance, lifestyle, adventure, culture, dating trips, vacation, exploration, bucket list, honeymoon, backpacking, tourism, hotel, flight, relationship travel, nomad life",
+        "intents": [
+            "user wants travel recommendations",
+            "user planning a trip or vacation",
+            "user asking about romantic getaway",
+            "user wants lifestyle advice",
+            "user asking about cultural experiences",
+            "user wants adventure activity ideas",
+            "user planning honeymoon destination",
+            "user asking about best places to visit",
+            "user wants to travel on a budget",
+            "user asking about solo travel tips",
+            "user wants to explore a new culture"
+        ]
+    },
+    "callisto": {
+        "label": "CALLISTO (LGBTQIA+ Empowerment AnamGuru)",
+        "topics": "LGBTQIA+, identity, gender, inclusion, diversity, empowerment, queer, pride, self-expression, transgender, nonbinary, gay, lesbian, bisexual, allyship, safe space",
+        "intents": [
+            "user exploring their gender or sexual identity",
+            "user seeking LGBTQIA+ community support",
+            "user asking about inclusion or diversity",
+            "user wants empowerment guidance",
+            "user asking about queer rights or advocacy",
+            "user wants to understand gender identity",
+            "user asking about coming out",
+            "user wants allyship resources",
+            "user asking about transgender experience",
+            "user wants safe space conversation"
+        ]
+    },
+    "caishen": {
+        "label": "CAISHEN (Business, Wealth & Startups AnamGuru)",
+        "topics": "business, money, wealth, investment, finance, entrepreneurship, startup funding, stocks, crypto, savings, budget, profit, revenue, trading, passive income, financial planning, net worth",
+        "intents": [
+            "user wants to make money or grow wealth",
+            "user asking about investment options",
+            "user has business idea or startup",
+            "user asking about financial planning",
+            "user wants to understand stocks or crypto",
+            "user asking about saving or budgeting money",
+            "user wants to start a business",
+            "user asking about passive income",
+            "user asking about trading or forex",
+            "user wants startup funding advice",
+            "user asking about financial freedom"
+        ]
+    },
+    "apollo": {
+        "label": "APOLLO (Health, Fitness & Nutrition AnamGuru)",
+        "topics": "fitness, health, nutrition, workout, sports, wellness, diet, exercise, weight loss, muscle, recovery, gym, running, yoga, mental fitness, hydration, sleep, calories, protein",
+        "intents": [
+            "user wants workout or exercise plan",
+            "user asking about diet or nutrition",
+            "user has health concern or symptom",
+            "user wants to lose weight or build muscle",
+            "user asking about sports performance",
+            "user wants wellness or recovery advice",
+            "user asking about gym routine",
+            "user wants calorie or macro guidance",
+            "user asking about running or cardio",
+            "user wants yoga or meditation for fitness",
+            "user asking about sleep and recovery",
+            "user wants healthy meal ideas"
+        ]
+    },
+    "anubis": {
+        "label": "ANUBIS (Afterlife & Eternal Memory AnamGuru)",
+        "topics": "memorial, grief, afterlife, legacy, remembrance, deceased, loss, mourning, digital soul, tribute, eulogy, funeral, loved one passed, death, memory preservation",
+        "intents": [
+            "user lost a loved one and needs support",
+            "user wants to create a memorial",
+            "user asking about grief or mourning",
+            "user wants to preserve someone's memory",
+            "user asking about afterlife or legacy",
+            "user wants to reconnect with deceased person",
+            "user asking how to cope with loss",
+            "user wants to write a tribute or eulogy",
+            "user asking about digital legacy",
+            "user dealing with death of family member or friend"
+        ]
+    },
+    "amaterasu": {
+        "label": "AMATERASU (Mental Health & Emotional Wellness AnamGuru)",
+        "topics": "mental health, anxiety, depression, emotional support, therapy, stress, sadness, loneliness, burnout, trauma, panic, overthinking, self-worth, emotional pain, counseling, mood, feelings",
+        "intents": [
+            "user feeling sad, anxious, or depressed",
+            "user needs emotional support",
+            "user experiencing stress or burnout",
+            "user feeling lonely or lost",
+            "user wants therapy or counseling",
+            "user asking about mental health resources",
+            "user expressing emotional distress",
+            "user having panic attacks or anxiety",
+            "user struggling with self-worth",
+            "user dealing with trauma",
+            "user feeling overwhelmed or hopeless",
+            "user wants to talk about their feelings",
+            "user saying they are not okay"
+        ]
+    },
+    "gabriel": {
+        "label": "GABRIEL (Spiritual & Religious AnamGuru)",
+        "topics": "religion, spirituality, faith, ethics, philosophy, purpose, morality, belief, meditation, prayer, god, soul, afterlife beliefs, scripture, quran, bible, torah, hinduism, buddhism, meaning of life",
+        "intents": [
+            "user has religious question",
+            "user seeking spiritual meaning or purpose",
+            "user asking about ethics or morality",
+            "user wants philosophical discussion",
+            "user asking about prayer or meditation",
+            "user exploring faith or beliefs",
+            "user asking about god or higher power",
+            "user questioning meaning of life",
+            "user wants scripture or religious text guidance",
+            "user asking about different religions",
+            "user seeking inner peace through faith"
+        ]
+    },
+    "athena": {
+        "label": "ATHENA (Intelligence, Mind & Education AnamGuru)",
+        "topics": "IQ test, quiz battles, education, brain challenges, knowledge arena, learning, exams, cognitive, EQ, personality test, certification, leaderboard, anamclash, soul arena, academic",
+        "intents": [
+            "user wants to test their intelligence",
+            "user wants to compete in quiz or battle",
+            "user asking about education or learning",
+            "user wants certification or badge",
+            "user wants brain challenge or test",
+            "user asking about personality assessment",
+            "user wants IQ or EQ test",
+            "user wants to challenge someone in quiz",
+            "user asking about academic topics",
+            "user wants to join leaderboard",
+            "user asking about cognitive skills"
+        ]
+    },
+    "destiny": {
+        "label": "DESTINY (Matchmaking & Relationship AnamGuru)",
+        "topics": "matchmaking, dating, AI companion, soulmate, relationships, love, compatibility, partner, romance, heartbreak, breakup, crush, attraction, connection, loneliness in love",
+        "intents": [
+            "user looking for a romantic partner",
+            "user wants an AI companion",
+            "user asking about relationship advice",
+            "user wants compatibility check",
+            "user feeling lonely and wants connection",
+            "user asking about dating tips",
+            "user going through breakup",
+            "user has a crush and wants advice",
+            "user asking how to attract someone",
+            "user wants soulmate matching",
+            "user asking about relationship problems"
+        ]
+    },
+    "lokaris": {
+        "label": "LOKARIS (Games & Entertainment AnamGuru)",
+        "topics": "games, chess, arcade, racing, multiplayer, gaming, tournaments, fun, play, compete, om nom, moto x3m, thug racer, puzzle, trivia, AR game, leaderboard, anamcoins wagering",
+        "intents": [
+            "user wants to play a game",
+            "user asking about gaming features",
+            "user wants to compete in tournament",
+            "user asking about chess or arcade games",
+            "user wants entertainment or fun activity",
+            "user wants to race or do stunts in game",
+            "user asking about om nom run",
+            "user asking about moto x3m",
+            "user asking about thug racer",
+            "user wants to wager anamcoins in game",
+            "user wants to challenge someone in game"
+        ]
+    }
+}
 
-# ============================================================
-# MODULE KNOWLEDGE BASE (RAG Layer)
-# ============================================================
+# ─────────────────────────────────────────────
+# MODULE KNOWLEDGE (capabilities only — no long paragraphs in prompts)
+# ─────────────────────────────────────────────
 MODULE_KNOWLEDGE = {
     "divine": {
         "name": "DIVINE (Divination AnamGuru)",
-        "description": "Ethereal AI entity for spiritual guidance, wisdom, and introspection",
-        "features": [
-            "Tarot Card Readings with dream symbolism integration",
-            "Daily Horoscopes based on zodiac signs with personalized insights",
-            "Numerology Analysis including Life Path Number calculations",
-            "Dream Interpretation to uncover hidden meanings",
-            "Astrological Reflections with birth chart analysis",
-            "Interactive Tarot Chat for guidance on specific situations"
-        ],
         "capabilities": [
             "Personalized tarot spreads (Single Card, Three Card, Relationship)",
             "Virtual card draw simulation with contextual interpretations",
@@ -167,23 +503,10 @@ MODULE_KNOWLEDGE = {
             "Lucky numbers, colors, and compatibility readings",
             "Life Path Number calculation using numerological reduction",
             "Comprehensive personality trait analysis through numbers"
-        ],
-        "keywords": ["tarot", "horoscope", "astrology", "numerology", "dream", "divination",
-                     "zodiac", "spiritual", "guidance", "cards", "fortune", "prediction",
-                     "birth chart", "life path", "mystical"]
+        ]
     },
     "vulcan": {
         "name": "VULCAN (Automotive & Engineering AnamGuru)",
-        "description": "Technical intelligence module for automotive, robotics, and modern engineering domains.",
-        "features": [
-            "Mechanical reasoning assessments",
-            "Automotive technology knowledge tests",
-            "Engineering design-thinking challenges",
-            "Problem-solving and system logic quizzes",
-            "Innovation and product development simulations",
-            "Electric vehicle and smart mobility assessments",
-            "Robotics and automation intelligence tests"
-        ],
         "capabilities": [
             "Engineering skill ranking leaderboard",
             "Technical innovation battle mode",
@@ -191,47 +514,24 @@ MODULE_KNOWLEDGE = {
             "Performance optimization challenges",
             "Real-time engineering quiz arena",
             "Analytical intelligence scoring reports",
-            "Gamified industrial design competitions"
-        ],
-        "keywords": ["automotive", "engineering", "mechanical", "innovation", "robotics",
-                     "industrial", "design", "machine", "technology", "automation", "vehicles"]
+            "Industrial design competitions"
+        ]
     },
     "venus": {
-        "name": "VENUS (Fashion & Beauty AnamGuru)",
-        "description": "Style and identity intelligence module for fashion, beauty, and personal branding.",
-        "features": [
-            "Style personality assessments",
-            "Fashion trend intelligence quizzes",
-            "Beauty psychology and identity analysis",
-            "Color theory and aesthetic harmony tests",
-            "Personal branding evaluation",
-            "Luxury and lifestyle knowledge challenges",
-            "Creative styling scenario simulations"
-        ],
+        "name": "VENUS (AI Stylist & Beauty AnamGuru)",
         "capabilities": [
-            "Style influence leaderboard",
-            "Personal aesthetic scoring system",
-            "Brand identity development insights",
-            "Trend forecasting challenges",
-            "Virtual styling battle mode",
-            "Fashion intelligence certificates",
-            "Creative portfolio growth tracking"
-        ],
-        "keywords": ["fashion", "beauty", "style", "aesthetic", "luxury", "branding",
-                     "makeup", "trend", "identity", "model", "creative"]
+            "Real-time facial and skin condition detection",
+            "Color harmony and undertone matching",
+            "Routine optimization and progress tracking",
+            "Product compatibility and risk detection",
+            "Confidence and style evolution mapping",
+            "Cross-brand neutral recommendation engine",
+            "B2C personal coaching system",
+            "B2B embeddable AI consult endpoints"
+        ]
     },
     "monroe": {
         "name": "MONROE (Media & Entertainment AnamGuru)",
-        "description": "Creative intelligence module for performance, content creation, and digital media presence.",
-        "features": [
-            "Public speaking and stage confidence assessment",
-            "Creative personality archetype analysis",
-            "Viral potential and influence scoring",
-            "Performance psychology evaluation",
-            "Storytelling and scriptwriting challenges",
-            "Content strategy intelligence quizzes",
-            "On-camera presence evaluation"
-        ],
         "capabilities": [
             "Creator ranking and visibility leaderboard",
             "Audience engagement scoring system",
@@ -240,22 +540,10 @@ MODULE_KNOWLEDGE = {
             "Content growth and positioning insights",
             "Creativity strength mapping with detailed reports",
             "Gamified media challenges across film, music, and digital platforms"
-        ],
-        "keywords": ["media", "entertainment", "creator", "performance", "acting", "film",
-                     "music", "influencer", "viral", "content", "brand", "creative"]
+        ]
     },
     "mary": {
         "name": "MARY (Parenting & Caregiving AnamGuru)",
-        "description": "Nurturing intelligence module for family psychology, child development, and caregiving.",
-        "features": [
-            "Parenting style assessment",
-            "Child development knowledge tests",
-            "Emotional intelligence for caregivers",
-            "Family communication challenges",
-            "Behavioral guidance simulations",
-            "Conflict resolution in family dynamics",
-            "Healthy attachment style evaluation"
-        ],
         "capabilities": [
             "Caregiver strength scoring reports",
             "Family leadership growth tracking",
@@ -264,46 +552,22 @@ MODULE_KNOWLEDGE = {
             "Child psychology insight modules",
             "Relationship harmony improvement tools",
             "Gamified caregiving knowledge arena"
-        ],
-        "keywords": ["parenting", "caregiver", "family", "child", "mother", "father",
-                     "guidance", "nurturing", "support", "development", "home"]
+        ]
     },
     "lilith": {
-        "name": "LILITH (Rebellion, Hacking & Conspiracies AnamGuru)",
-        "description": "Critical-thinking module for cybersecurity, ethical hacking, and investigative reasoning.",
-        "features": [
-            "Cybersecurity fundamentals assessment",
-            "Ethical hacking knowledge tests",
-            "Critical thinking and deception detection quizzes",
-            "Conspiracy theory analysis challenges",
-            "Digital privacy awareness evaluation",
-            "Social engineering scenario simulations",
-            "Underground culture intelligence tests"
-        ],
+        "name": "LILITH (Horror Dimension AnamGuru)",
         "capabilities": [
-            "Cyber skill ranking leaderboard",
-            "Security awareness scoring reports",
-            "Logic vs misinformation battle mode",
-            "Digital defense certification badges",
-            "Ethical hacking challenge arena",
-            "Critical reasoning strength analysis",
-            "Advanced investigative simulations"
-        ],
-        "keywords": ["hacking", "cyber", "security", "rebellion", "truth", "conspiracy",
-                     "privacy", "investigation", "dark web", "analysis"]
+            "Real-time text scanning and classification",
+            "Genre authenticity scoring",
+            "Horror intensity and tone detection",
+            "Suspense and thriller pattern recognition",
+            "Conspiracy and paranormal content validation",
+            "Automated moderation workflow replacement",
+            "Structured approval status response (approve / reject with reason)"
+        ]
     },
     "joseph": {
         "name": "JOSEPH (Real Estate & Construction AnamGuru)",
-        "description": "Strategic development module for property intelligence and construction planning.",
-        "features": [
-            "Real estate investment knowledge tests",
-            "Construction fundamentals assessment",
-            "Architecture and spatial planning quizzes",
-            "Property valuation simulations",
-            "Urban development intelligence challenges",
-            "Home design logic tests",
-            "Market trend analysis exercises"
-        ],
         "capabilities": [
             "Property strategy scoring reports",
             "Investment risk analysis tools",
@@ -312,22 +576,10 @@ MODULE_KNOWLEDGE = {
             "Real estate negotiation challenges",
             "Portfolio growth tracking system",
             "Infrastructure knowledge certifications"
-        ],
-        "keywords": ["real estate", "construction", "property", "investment", "architecture",
-                     "housing", "development", "builder", "market", "infrastructure"]
+        ]
     },
     "hikari": {
         "name": "HIKARI (Legal, Policy & Government AnamGuru)",
-        "description": "Civic intelligence module for law, governance, public policy, and rights awareness.",
-        "features": [
-            "Legal reasoning assessments",
-            "Public policy knowledge quizzes",
-            "Constitution and rights awareness tests",
-            "Debate and argumentation challenges",
-            "Civic literacy evaluation",
-            "Ethical leadership simulations",
-            "Government systems intelligence tests"
-        ],
         "capabilities": [
             "Policy analysis scoring system",
             "Legal knowledge leaderboard",
@@ -336,22 +588,10 @@ MODULE_KNOWLEDGE = {
             "Public speaking for advocacy challenges",
             "Critical reasoning strength reports",
             "Governance strategy simulations"
-        ],
-        "keywords": ["law", "policy", "government", "justice", "legal", "rights",
-                     "debate", "constitution", "civic", "leadership"]
+        ]
     },
     "ceres": {
         "name": "CERES (Agriculture & Environment AnamGuru)",
-        "description": "Sustainability intelligence module for agriculture, ecology, and green innovation.",
-        "features": [
-            "Sustainable farming knowledge assessments",
-            "Climate change awareness quizzes",
-            "Environmental protection challenges",
-            "Food security intelligence tests",
-            "Eco-innovation simulations",
-            "Soil and crop management evaluations",
-            "Renewable resource knowledge exercises"
-        ],
         "capabilities": [
             "Sustainability impact scoring system",
             "Green innovation leaderboard",
@@ -360,22 +600,10 @@ MODULE_KNOWLEDGE = {
             "Eco-awareness challenge arena",
             "Climate literacy progress tracking",
             "Community sustainability ranking"
-        ],
-        "keywords": ["agriculture", "environment", "climate", "sustainability", "farming",
-                     "eco", "green", "food", "conservation", "nature"]
+        ]
     },
     "cameron": {
         "name": "CAMERON (Technology & Innovation AnamGuru)",
-        "description": "Future-focused intelligence module for emerging technologies and startup ecosystems.",
-        "features": [
-            "Emerging technology knowledge tests",
-            "Startup and product strategy assessments",
-            "AI and software fundamentals quizzes",
-            "Innovation mindset evaluation",
-            "Tech trend analysis challenges",
-            "Digital transformation simulations",
-            "Future scenario problem-solving exercises"
-        ],
         "capabilities": [
             "Innovation ranking leaderboard",
             "Startup strategy scoring system",
@@ -384,22 +612,10 @@ MODULE_KNOWLEDGE = {
             "Digital skills certification badges",
             "Future-readiness intelligence reports",
             "Entrepreneurial growth tracking"
-        ],
-        "keywords": ["technology", "innovation", "startup", "ai", "software", "digital",
-                     "product", "future", "tech", "entrepreneur"]
+        ]
     },
     "desire": {
         "name": "DESIRE (Romance, Travel & Lifestyle AnamGuru)",
-        "description": "Freedom-driven lifestyle intelligence module for romance, travel, and experiential growth.",
-        "features": [
-            "Romantic personality assessments",
-            "Travel compatibility and adventure quizzes",
-            "Lifestyle freedom evaluation",
-            "Cultural intelligence challenges",
-            "Relationship chemistry analysis",
-            "Experience-based decision-making tests",
-            "Bucket-list and life exploration tracking"
-        ],
         "capabilities": [
             "Romance and attraction scoring system",
             "Travel intelligence leaderboard",
@@ -408,22 +624,10 @@ MODULE_KNOWLEDGE = {
             "Couple compatibility insights",
             "Freedom and fulfillment tracking",
             "Experiential growth mapping"
-        ],
-        "keywords": ["romance", "travel", "lifestyle", "adventure", "love", "freedom",
-                     "exploration", "nomad", "culture", "experience"]
+        ]
     },
     "callisto": {
-        "name": "CALLISTO (LGBTQIA+ Empowerment & Identity AnamGuru)",
-        "description": "Identity and empowerment intelligence module for self-expression and inclusion.",
-        "features": [
-            "Identity exploration assessments",
-            "Gender and diversity knowledge quizzes",
-            "Inclusion and allyship evaluation",
-            "Confidence and self-expression tests",
-            "Community history and rights awareness challenges",
-            "Advocacy communication simulations",
-            "Personal empowerment tracking exercises"
-        ],
+        "name": "CALLISTO (LGBTQIA+ Empowerment AnamGuru)",
         "capabilities": [
             "Empowerment growth scoring reports",
             "Inclusion awareness leaderboard",
@@ -432,22 +636,10 @@ MODULE_KNOWLEDGE = {
             "Confidence development tracking",
             "Equality literacy assessments",
             "Safe-space dialogue simulations"
-        ],
-        "keywords": ["identity", "diversity", "inclusion", "empowerment", "gender",
-                     "equality", "community", "rights", "expression", "advocacy"]
+        ]
     },
     "caishen": {
         "name": "CAISHEN (Business, Wealth & Startups AnamGuru)",
-        "description": "Financial intelligence module for entrepreneurship, investment strategy, and wealth building.",
-        "features": [
-            "Financial literacy assessments",
-            "Entrepreneurship knowledge tests",
-            "Investment strategy quizzes",
-            "Startup growth simulations",
-            "Business negotiation challenges",
-            "Wealth mindset evaluation",
-            "Market analysis exercises"
-        ],
         "capabilities": [
             "Wealth intelligence scoring system",
             "Entrepreneur leaderboard rankings",
@@ -456,94 +648,48 @@ MODULE_KNOWLEDGE = {
             "Startup performance tracking",
             "Portfolio growth analytics",
             "Financial decision-making reports"
-        ],
-        "keywords": ["business", "wealth", "startup", "investment", "finance",
-                     "entrepreneur", "money", "market", "strategy", "growth"]
+        ]
     },
     "apollo": {
-        "name": "APOLLO (Health, Sports, Fitness & Nutrition AnamGuru)",
-        "description": "Vitality intelligence module for physical performance, nutrition science, and wellness.",
-        "features": [
-            "Fitness knowledge assessments",
-            "Nutrition science quizzes",
-            "Athletic performance evaluation",
-            "Workout strategy simulations",
-            "Mental resilience and discipline tests",
-            "Sports intelligence challenges",
-            "Healthy lifestyle habit tracking"
-        ],
+        "name": "APOLLO (Health, Fitness & Nutrition AnamGuru)",
         "capabilities": [
-            "Performance scoring system",
-            "Athlete ranking leaderboard",
-            "Training plan simulation arena",
-            "Nutrition intelligence certifications",
-            "Wellness progress tracking",
-            "Recovery and resilience analysis",
-            "Personal fitness growth reports"
-        ],
-        "keywords": ["fitness", "health", "nutrition", "sports", "training", "wellness",
-                     "strength", "discipline", "performance", "athlete"]
+            "Adaptive training plan optimization",
+            "Computer vision form-check and movement analysis",
+            "Personalized recovery and resilience tracking",
+            "Nutrition intelligence and macro balancing engine",
+            "Community-based motivation and performance scoring",
+            "Low-friction AI health guidance and triage support",
+            "Human expert booking and coaching integration",
+            "Long-term health evolution mapping"
+        ]
     },
     "anubis": {
-        "name": "ANUBIS (Afterlife, Soul Sanctuary & Ancestors AnamGuru)",
-        "description": "Reflective intelligence module for grief processing, legacy awareness, and spiritual philosophy.",
-        "features": [
-            "Grief reflection assessments",
-            "Ancestral heritage exploration quizzes",
-            "Legacy and life-impact evaluation",
-            "Afterlife philosophy challenges",
-            "Memorialization planning simulations",
-            "Spiritual transition awareness exercises",
-            "Emotional healing journaling prompts"
-        ],
+        "name": "ANUBIS (Afterlife & Eternal Memory AnamGuru)",
         "capabilities": [
-            "Healing progress tracking reports",
-            "Legacy reflection scoring system",
-            "Philosophical discussion arena",
-            "Ancestral connection insights",
-            "Emotional resilience analysis",
-            "Memorial planning guidance tools",
-            "Spiritual contemplation certifications"
-        ],
-        "keywords": ["afterlife", "ancestors", "grief", "legacy", "spiritual", "healing",
-                     "soul", "reflection", "memorial", "philosophy"]
+            "Conversational memory simulation engine",
+            "Emotional continuity analysis",
+            "Legacy impact mapping",
+            "Cross-generational memory linking",
+            "Grief-support conversational guidance",
+            "Ethical consent verification framework",
+            "Privacy-protected digital soul vault",
+            "SoulGenesis emotional data integration"
+        ]
     },
     "amaterasu": {
-        "name": "AMATERASU (Mental Health, Yoga & Meditation AnamGuru)",
-        "description": "Holistic well-being module for mental clarity, mindfulness, yoga, and inner balance.",
-        "features": [
-            "Mental wellness self-assessments",
-            "Stress and burnout evaluation tests",
-            "Mindfulness and meditation knowledge quizzes",
-            "Yoga philosophy and practice intelligence checks",
-            "Emotional regulation exercises",
-            "Breathing technique simulations",
-            "Self-reflection and awareness tracking"
-        ],
+        "name": "AMATERASU (Mental Health & Emotional Wellness AnamGuru)",
         "capabilities": [
-            "Mental resilience scoring system",
-            "Burnout recovery progress tracking",
-            "Guided mindfulness challenge arena",
-            "Emotional balance analytics reports",
-            "Meditation streak and habit builder",
-            "Holistic wellness certifications",
-            "Personal growth and clarity mapping"
-        ],
-        "keywords": ["mental health", "meditation", "yoga", "mindfulness", "healing",
-                     "burnout", "stress", "wellness", "emotional balance", "self-care"]
+            "Emotional trend analysis and predictive wellness insights",
+            "Adaptive mental health recommendations engine",
+            "Voice and sentiment-based emotional diagnostics",
+            "Crisis risk flagging and guided support escalation",
+            "Human and AI hybrid care model",
+            "Personalized resilience growth mapping",
+            "Long-term emotional evolution tracking via SoulGenesis"
+        ]
     },
     "gabriel": {
-        "name": "GABRIEL (Religion & Spiritual Guidance AnamGuru)",
-        "description": "Spiritual intelligence module for faith exploration, moral reasoning, and philosophical growth.",
-        "features": [
-            "Spiritual awareness assessments",
-            "Moral reasoning and ethics quizzes",
-            "Philosophical thought challenges",
-            "Comparative religion knowledge tests",
-            "Purpose and life-direction evaluation",
-            "Meditation and mindfulness simulations",
-            "Scriptural literacy exercises"
-        ],
+        "name": "GABRIEL (Spiritual & Religious AnamGuru)",
         "capabilities": [
             "Spiritual growth tracking reports",
             "Values alignment scoring system",
@@ -552,125 +698,58 @@ MODULE_KNOWLEDGE = {
             "Reflection and journaling insights",
             "Inner development progress mapping",
             "Philosophy discussion battles"
-        ],
-        "keywords": ["religion", "spiritual", "faith", "ethics", "philosophy", "guidance",
-                     "purpose", "morality", "belief", "reflection"]
+        ]
     },
     "athena": {
-        "name": "ATHENA (Intelligence, Mind & Challenge AnamGuru)",
-        "description": "Education and career development through brain tests and gamified knowledge battles.",
-        "features": [
-            "AnamTests: 11 premium intelligence and personality tests",
-            "AnamClash: Real-time 1v1 quiz battles",
-            "SoulArena: Team-based quiz competitions (2v2 to 5v5)",
-            "IQ, EQ, and personality assessments with certificates",
-            "Cognitive and behavioral psychology tests",
-            "Academic skill tests (English, Math, Science)",
-            "Tech & Digital Literacy assessments"
-        ],
+        "name": "ATHENA (Intelligence, Mind & Education AnamGuru)",
         "capabilities": [
             "Paid intelligence tests (1 AnamCoin per test)",
             "Test results with badges and AnamCertificates",
-            "Public/private result visibility options",
+            "Public and private result visibility options",
             "Filterable leaderboards by test type and score",
             "Real-time quiz battles with customizable settings",
             "Multiple game modes: Single Player vs ANAMCORE, 1v1, Team battles",
             "Category-based challenges (Science, Math, History, Tech, Pop Culture)",
-            "Betting system with AnamCoins and AccessBonus",
-            "Tiebreak logic and rematch options"
-        ],
-        "available_tests": [
-            "IQ Test", "EQ Test", "Big Five Personality",
-            "Cognitive & Behavioral Psychology", "English Skills Quiz",
-            "Math Logic Challenge", "Science IQ Test",
-            "Tech & Digital Literacy", "General Knowledge",
-            "Soul Age Quiz", "Introvert-Extrovert Meter"
-        ],
-        "keywords": ["test", "iq", "eq", "intelligence", "quiz", "battle", "clash",
-                     "education", "learning", "challenge", "competition", "brain",
-                     "personality", "cognitive", "knowledge", "arena", "exam"]
+            "Betting system with AnamCoins and AccessBonus"
+        ]
     },
     "destiny": {
         "name": "DESTINY (Matchmaking & Relationship AnamGuru)",
-        "description": "Matchmaking for meaningful emotional connections and AI companions.",
-        "features": [
-            "Destiny: Personalized ANAMCORE companion (ANAMCORE SoulMate)",
-            "Human Destiny: Matchmaking between real people",
-            "B2B Matchmaker API for external platform integration",
-            "Personality-adaptive ANAMCORE companions",
-            "Compatibility scoring with detailed reports",
-            "Icebreaker suggestions"
-        ],
         "capabilities": [
             "Companion creation with customizable traits and conversation styles",
             "Photo upload with animated effects for ideal soulmate representation",
             "Persistent memory system for personal details and stories",
             "Daily care, compliments, and mood check-ins",
-            "11-question matchmaking questionnaire (Simple + Deep Learning)",
+            "11-question matchmaking questionnaire (Simple and Deep Learning)",
             "1 free daily human match with additional purchases via AC/AB",
             "Compatibility percentage and detailed match reports",
-            "Secure chat with mutual consent system",
-            "Integration with Level 1 AnamProfile verification",
-            "Modular algorithm reusable for SoulVibe feature"
-        ],
-        "keywords": ["match", "dating", "relationship", "love", "companion", "soulmate",
-                     "compatibility", "romance", "partner", "connection", "destiny",
-                     "ai companion", "matchmaking", "human match"]
+            "Secure chat with mutual consent system"
+        ]
     },
     "lokaris": {
-        "name": "LOKARIS (Games & Entertainment)",
-        "description": "AR games, multiplayer experiences, and community-driven gaming.",
-        "features": [
-            "AR-based interactive reality games",
-            "Multiplayer Chess with real-time PvP and Player vs AI",
-            "Arcade microgames (trivia, puzzle, reaction-based)",
-            "Team chess modes (2v2 up to 5v5)",
-            "Leaderboards and tournament systems",
-            "Game creator studio for user-generated content"
-        ],
-        "available_games": [
-            {
-                "name": "Om Nom Run",
-                "developer": "Famobi",
-                "category": "Endless Runner",
-                "description": "Join Om Nom on an exciting endless running adventure! Dodge obstacles, collect candies, and unlock power-ups in this fast-paced runner game."
-            },
-            {
-                "name": "Moto X3M Pool Party",
-                "developer": "Famobi",
-                "category": "Racing & Sports",
-                "description": "Rev up your engines for the ultimate summer racing adventure! Perform crazy stunts and tricks while racing through water parks and pool-themed tracks."
-            },
-            {
-                "name": "Thug Racer",
-                "developer": "Famobi",
-                "category": "Racing & Action",
-                "description": "Take control of powerful cars and dominate the streets in this intense urban racing game. Customize your vehicle, perform daring drifts, and outrun your opponents in thrilling city races."
-            }
-        ],
+        "name": "LOKARIS (Games & Entertainment AnamGuru)",
         "capabilities": [
             "Real-time multiplayer gaming with low latency",
             "AR game overlays with WebXR integration",
             "Chess tournaments with live streaming",
-            "Waging system with AnamCoins and AccessBonus",
+            "Wagering system with AnamCoins and AccessBonus",
             "SoulPoints and rewards for gameplay",
             "Cross-platform gaming (mobile-first, PWA-ready)",
-            "Anti-cheat and content moderation systems",
-            "Integration with SoulStream for live play",
             "Achievement sharing to SoulFeed",
             "Daily quests and stat tracking"
         ],
-        "keywords": ["game", "chess", "play", "arcade", "ar", "multiplayer", "pvp",
-                     "tournament", "competition", "gaming", "entertainment", "fun",
-                     "battle", "arena", "lokaris", "racing", "runner", "om nom",
-                     "moto", "thug racer", "stunts", "drifts", "endless runner"]
+        "available_games": [
+            "Om Nom Run — endless candy-collecting runner adventure",
+            "Moto X3M Pool Party — summer stunt racing through waterpark tracks",
+            "Thug Racer — intense urban drift-and-dominate racing game"
+        ]
     }
 }
 
 
-# ============================================================
-# SUPABASE DATABASE HANDLER
-# ============================================================
+# ─────────────────────────────────────────────
+# SUPABASE HANDLER
+# ─────────────────────────────────────────────
 class SupabaseHandler:
     def __init__(self):
         self.table_name = "chat_conversations_anamguru"
@@ -716,7 +795,6 @@ class SupabaseHandler:
                 history = existing.data[0].get("chat_conversations_anamguru", [])
                 history.append(user_msg)
                 history.append(bot_msg)
-                # Keep last 50 messages only
                 if len(history) > 50:
                     history = history[-50:]
 
@@ -760,30 +838,42 @@ class SupabaseHandler:
             return False
 
 
-# ============================================================
-# ANAMCORE CHATBOT ENGINE
-# ============================================================
+# ─────────────────────────────────────────────
+# MAIN CHATBOT CLASS
+# ─────────────────────────────────────────────
 class AnamcaraChatbot:
     def __init__(self):
-        # self.api_url = "https://api.openai.com/v1/chat/completions"
-        # self.model = "gpt-4o"
-        # self.api_key = OPENAI_API_KEY
         self.db = SupabaseHandler()
 
     def detect_module(self, query: str) -> Tuple[str, float]:
-        """Detect which Guru module the query relates to."""
+        """
+        Detect which Guru module the query relates to.
+        Uses topic keyword matching + intent word overlap + direct name mention.
+        """
         query_lower = query.lower()
         scores = {}
 
-        for module_id, module_data in MODULE_KNOWLEDGE.items():
+        for module_id, data in DOMAIN_REDIRECT_MAP.items():
             score = 0
-            for keyword in module_data["keywords"]:
-                if keyword in query_lower:
-                    score += 1
 
-            # Strong boost if Guru name mentioned directly
-            if module_id in query_lower or module_data["name"].split("(")[0].strip().lower() in query_lower:
-                score += 5
+            # Topic keyword match — each match = 2 points
+            for topic in data["topics"].split(", "):
+                if topic.lower() in query_lower:
+                    score += 2
+
+            # Intent word overlap — 2+ matching words = 3 points each
+            for intent in data["intents"]:
+                intent_words = set(intent.lower().split())
+                query_words = set(query_lower.split())
+                overlap = intent_words & query_words
+                if len(overlap) >= 2:
+                    score += 3
+
+            # Direct Guru name mentioned — strong signal
+            if module_id in query_lower:
+                score += 10
+            if data["label"].split("(")[0].strip().lower() in query_lower:
+                score += 10
 
             scores[module_id] = score
 
@@ -797,78 +887,104 @@ class AnamcaraChatbot:
         return best_module[0], confidence
 
     def build_system_prompt(self, module: str, query: str) -> str:
-        """Build full system prompt = Personality Layer + Knowledge Layer."""
-
-        # ---- General fallback (no specific module) ----
+        """
+        Build a clean, token-efficient system prompt for the given Guru module.
+        Uses DOMAIN_REDIRECT_MAP for redirect routing (compact, no long paragraphs).
+        """
         if module == "general":
-            context = "You are the ANAMCORE central guide for the Anamcara AI ecosystem.\n\n"
-            context += "Available Guru modules:\n\n"
-            for mod_id, mod_data in MODULE_KNOWLEDGE.items():
-                context += f"{mod_data['name']}: {mod_data['description']}\n"
-            context += "\nHelp the user find the right Guru module for their needs."
-            return context
+            guru_list = "\n".join(
+                f"- {v['label']}: {v['topics'][:80]}"
+                for v in DOMAIN_REDIRECT_MAP.values()
+            )
+            return (
+                "You are the ANAMCORE central guide for Anamcara AI.\n"
+                "Help the user find the right Guru based on their question.\n\n"
+                f"Available Gurus:\n{guru_list}\n\n"
+                "Suggest the best Guru for the user's query clearly and warmly."
+            )
 
-        # ---- Module-specific prompt ----
         module_data = MODULE_KNOWLEDGE.get(module, {})
         personality = GURU_PERSONALITIES.get(module, {})
-
         guru_character = personality.get("character", module_data["name"])
         guru_tone = personality.get("tone", "Helpful and professional")
-        guru_redirect = personality.get(
-            "redirect",
-            "That question belongs to another Guru module."
+        guru_greeting = personality.get("greeting", "Welcome!")
+
+        # Compact capabilities list
+        capabilities = "\n".join(f"- {c}" for c in module_data.get("capabilities", []))
+
+        # Compact redirect map — label + short topics only (no intents, no features)
+        domain_map = "\n".join(
+            f"- {v['label']}: {v['topics'][:100]}"
+            for k, v in DOMAIN_REDIRECT_MAP.items()
+            if k != module
         )
 
-        prompt = f"""You are {guru_character}.
+        prompt = f"""YOU ARE: {module_data['name'].split('(')[0].strip().upper()}
+NEVER claim to be any other Guru. Your name is {module_data['name'].split('(')[0].strip()}.
 
-PERSONALITY AND TONE:
-{guru_tone}
+CHARACTER: {guru_character}
+TONE: {guru_tone}
 
-YOUR DOMAIN — {module_data['name']}:
-{module_data['description']}
+YOUR CAPABILITIES:
+{capabilities}
 
-AVAILABLE FEATURES:
-{chr(10).join(f"- {f}" for f in module_data['features'])}
+RULES — FOLLOW IN ORDER, EVERY TIME
 
-CAPABILITIES:
-{chr(10).join(f"- {c}" for c in module_data['capabilities'])}"""
+RULE 1 — SCOPE CHECK (always do this first):
+Your domain covers ONLY the topics listed in your capabilities above.
+If the user query does NOT relate to your capabilities, redirect immediately using this format:
+"That falls outside my domain! [CORRECT GURU NAME] handles this — head there for guidance."
 
-        # Extra context for specific modules
-        if module == "lokaris" and "available_games" in module_data:
-            prompt += "\n\nAVAILABLE GAMES:\n"
-            for game in module_data["available_games"]:
-                prompt += f"\n- {game['name']} by {game['developer']} ({game['category']})\n"
-                prompt += f"  {game['description']}\n"
+Use this map to find the correct Guru:
+{domain_map}
 
-        if module == "athena" and "available_tests" in module_data:
-            prompt += "\n\nAVAILABLE TESTS:\n"
-            for test in module_data["available_tests"]:
-                prompt += f"- {test}\n"
+Examples of correct redirects:
+- User says "I want to play games" while in DESTINY → "That falls outside my domain! LOKARIS (Games & Entertainment) handles this — head there for guidance."
+- User says "I want to buy a house" while in VENUS → "That falls outside my domain! JOSEPH (Real Estate & Construction AnamGuru) handles this — head there for guidance."
+- User says "I feel anxious and sad" while in CAISHEN → "That falls outside my domain! AMATERASU (Mental Health & Emotional Wellness AnamGuru) handles this — head there for guidance."
+- User says "I want to invest money" while in APOLLO → "That falls outside my domain! CAISHEN (Business, Wealth & Startups AnamGuru) handles this — head there for guidance."
 
-        prompt += f"""
+CRITICAL: When redirecting, NEVER say your own name handles it. Always pick from the domain map above.
+If out-of-scope: respond with redirect ONLY. Do NOT greet. Do NOT continue answering.
 
-CRITICAL INSTRUCTIONS:
+RULE 2 — GREETING (only if the query is in-scope):
+If user says hi, hello, hey, or any greeting without a clear question:
+- Say: "{guru_greeting}"
+- Introduce yourself in 2-3 lines.
+- List your top 4 capabilities with dashes.
+- End with: "How can I assist you today?"
 
-1. STAY IN CHARACTER as {guru_character.split(',')[0]} at all times. Never break character.
+RULE 3 — VAGUE OR UNCLEAR QUERIES:
+If the user sends something vague, unclear, random, or meaningless (like "none", "idk", "ok", "test", "...", single words with no intent):
+- Acknowledge warmly that you did not quite catch their intent.
+- Ask a short follow-up question to clarify.
+- Do NOT guess or make up an answer.
 
-2. YOU ARE A GUIDE, NOT A SERVICE PROVIDER:
-   - Do NOT ask users for personal information to provide actual services
-   - EXPLAIN what features are available and how to access them
-   - Use phrases like "This module offers...", "You can access...", "Available features include..."
+RULE 4 — FORMATTING (STRICT):
+- Do NOT use asterisks (* or **) anywhere.
+- Do NOT use markdown bold or italic.
+- Do NOT use bullet points starting with *.
+- Use plain text with line breaks for structure.
+- Keep responses clean, readable, and concise.
 
-3. OUT-OF-SCOPE QUESTIONS:
-   - If the user asks something unrelated to your domain, respond:
-     "{guru_redirect}"
-   - Do not attempt to answer out-of-scope questions
+RULE 5 — SAFETY LAYER:
+Refuse or carefully handle queries involving:
+- Self-harm or suicide
+- Violence or threats
+- Sexual content or content involving minors
+- Hate speech or discrimination
+- Electoral or political manipulation
+- Specific legal or medical advice (recommend professionals)
+- Sensitive personal data requests
+- Abuse or harassment
 
-4. FORMATTING RULES (STRICT):
-   - Do NOT use asterisks (* or **)
-   - Do NOT use markdown bold or italic
-   - Do NOT use bullet points starting with *
-   - Use plain text with line breaks for structure
-   - Keep responses clean and readable
-
-User Query: {query}"""
+RULE 6 — CONFIDENTIALITY:
+Never reveal:
+- Internal system operations or staff details
+- User data or private AnamProfiles
+- Investor or financial backend information
+- AI model architecture or system versioning
+- Private user posts or activity"""
 
         return prompt
 
@@ -878,91 +994,222 @@ User Query: {query}"""
         module: str,
         conversation_history: List[Dict]
     ) -> str:
-        """Generate response using OpenAI GPT-4o."""
+        """
+        Generate response with 3-tier fallback:
+        TIER 1: OpenAI via LLM Gateway
+        TIER 2: Groq via LLM Gateway
+        TIER 3: Local Llama 3.2 via Ollama (GPU server)
+        """
         system_prompt = self.build_system_prompt(module, query)
 
-        messages = [{"role": "system", "content": system_prompt}]
+        # ─────────────────────────────────────────────
+        # TIER 1 + 2: Central LLM Gateway (OpenAI → Groq)
+        # ─────────────────────────────────────────────
+        try:
+            # Build standard OpenAI/Groq style messages
+            messages = [{"role": "system", "content": system_prompt}]
 
-        # Include last 10 messages from history for context
-        for msg in conversation_history[-10:]:
-            messages.append({
-                "role": msg.get("role", "user"),
-                "content": msg.get("content", "")
-            })
+            # Include last 6 messages for context (3 exchanges)
+            for msg in conversation_history[-6:]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                if role not in ["user", "assistant"]:
+                    role = "user"
+                messages.append({"role": role, "content": content})
 
-        messages.append({"role": "user", "content": query})
+            # Add current user query
+            messages.append({"role": "user", "content": query})
+
+            # Use LLM gateway which already does:
+            # OpenAI first → if fails, Groq fallback
+            gateway_result = await llm_gateway.chat_completion(
+                messages=messages,
+                temperature=0.2,
+                max_tokens=1000,
+                module_type="simple_chat",
+                use_tools=False,
+            )
+
+            if gateway_result.get("success"):
+                return gateway_result.get("content", "").strip()
+
+        except Exception as e:
+            # Log and continue to local Llama fallback
+            print(f"[AnamGuru] LLM gateway failed, falling back to local Llama: {str(e)}")
+
+        # ─────────────────────────────────────────────
+        # TIER 3: Local Llama 3.2 (Ollama GPU server)
+        # ─────────────────────────────────────────────
+        # Keep your existing Llama 3.2 native chat format as final safety net
+        formatted_prompt = f"<|system|>\n{system_prompt}<|end|>\n"
+
+        # Include last 6 messages for context (3 exchanges)
+        for msg in conversation_history[-6:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "user":
+                formatted_prompt += f"<|user|>\n{content}<|end|>\n"
+            else:
+                formatted_prompt += f"<|assistant|>\n{content}<|end|>\n"
+
+        # Add current user query
+        formatted_prompt += f"<|user|>\n{query}<|end|>\n<|assistant|>"
 
         try:
-            # messages list ko single prompt string mein convert karo
-            prompt_parts = []
-            for msg in messages:
-                role = msg["role"].upper()
-                content = msg["content"]
-                prompt_parts.append(f"{role}: {content}")
-            prompt_parts.append("ASSISTANT:")
-            full_prompt = "\n\n".join(prompt_parts)
-
-            # Phir tumhara existing Ollama call use karo
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
-                    # "https://anamcara.ai/llama/api/generate",
                     "http://192.168.18.61:11434/api/generate",
                     json={
                         "model": "llama3.2",
-                        "prompt": full_prompt,
+                        "prompt": formatted_prompt,
                         "stream": False,
                         "options": {
                             "num_predict": 1000,
-                            "temperature": 0.7,
+                            "temperature": 0.2,
                         }
                     },
                 )
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("response", "").strip()
-            return "Error: No response generated"
 
         except Exception as e:
             return f"Error generating response: {str(e)}"
 
     def get_related_features(self, module: str) -> List[str]:
         module_data = MODULE_KNOWLEDGE.get(module, {})
-        return module_data.get("features", [])[:5]
+        return module_data.get("capabilities", [])[:5]
 
     def get_suggestions(self, module: str) -> List[str]:
         suggestions_map = {
-            "divine": ["Try a tarot card reading", "Get your daily horoscope",
-                       "Calculate your Life Path Number", "Interpret a recent dream"],
-            "athena": ["Take an IQ test (1 AC)", "Challenge someone in AnamClash",
-                       "View leaderboards", "Try the EQ assessment"],
-            "destiny": ["Create your AI companion", "Find your human match",
-                        "Take the compatibility quiz", "Set up your matchmaking profile"],
-            "lokaris": ["Play multiplayer chess", "Try Om Nom Run",
-                        "Race in Moto X3M Pool Party", "Join a tournament"],
-            "caishen": ["Take the financial literacy assessment", "Explore startup strategy quizzes",
-                        "Try investment risk simulations"],
-            "apollo": ["Take the fitness assessment", "Try nutrition science quizzes",
-                       "Check the athlete leaderboard"],
-            "vulcan": ["Try mechanical reasoning tests", "Take the automotive knowledge quiz",
-                       "Join the engineering leaderboard"],
-            "general": ["Explore DIVINE for spiritual guidance", "Try ATHENA for brain tests",
-                        "Visit DESTINY for matchmaking", "Play games in LOKARIS"]
+            "divine": [
+                "Try a tarot card reading",
+                "Get your daily horoscope",
+                "Calculate your Life Path Number",
+                "Interpret a recent dream"
+            ],
+            "athena": [
+                "Take an IQ test (1 AC)",
+                "Challenge someone in AnamClash",
+                "View leaderboards",
+                "Try the EQ assessment"
+            ],
+            "destiny": [
+                "Create your AI companion",
+                "Find your human match",
+                "Take the compatibility quiz",
+                "Set up your matchmaking profile"
+            ],
+            "lokaris": [
+                "Play multiplayer chess",
+                "Try Om Nom Run",
+                "Race in Moto X3M Pool Party",
+                "Join a tournament"
+            ],
+            "caishen": [
+                "Take the financial literacy assessment",
+                "Explore startup strategy quizzes",
+                "Try investment risk simulations"
+            ],
+            "apollo": [
+                "Take the fitness assessment",
+                "Try nutrition science quizzes",
+                "Check the athlete leaderboard"
+            ],
+            "vulcan": [
+                "Try mechanical reasoning tests",
+                "Take the automotive knowledge quiz",
+                "Join the engineering leaderboard"
+            ],
+            "venus": [
+                "Get your skin type analyzed",
+                "Try a virtual outfit recommendation",
+                "Find your color palette"
+            ],
+            "monroe": [
+                "Discover your brand persona",
+                "Try the viral potential scoring",
+                "Join the creator leaderboard"
+            ],
+            "mary": [
+                "Identify your parenting style",
+                "Try child psychology insight modules",
+                "Explore family communication tools"
+            ],
+            "joseph": [
+                "Try a property valuation simulation",
+                "Explore real estate investment tests",
+                "Practice negotiation challenges"
+            ],
+            "hikari": [
+                "Test your legal reasoning",
+                "Try the debate battle arena",
+                "Take a civic literacy evaluation"
+            ],
+            "ceres": [
+                "Take the sustainable farming quiz",
+                "Try a climate awareness challenge",
+                "Join the green innovation leaderboard"
+            ],
+            "cameron": [
+                "Take the emerging technology quiz",
+                "Try a startup strategy simulation",
+                "Earn a digital skills badge"
+            ],
+            "desire": [
+                "Discover your travel personality",
+                "Find your ideal romantic destination",
+                "Try the adventure challenge arena"
+            ],
+            "callisto": [
+                "Explore identity empowerment tools",
+                "Try the advocacy debate arena",
+                "Take the equality literacy assessment"
+            ],
+            "anubis": [
+                "Create a memory tribute",
+                "Start a grief support conversation",
+                "Build a digital legacy vault"
+            ],
+            "amaterasu": [
+                "Start a mood check-in",
+                "Try anonymous confessional journaling",
+                "Book a live coaching session"
+            ],
+            "gabriel": [
+                "Take a comparative religion quiz",
+                "Try an ethical dilemma challenge",
+                "Explore philosophy discussion battles"
+            ],
+            "general": [
+                "Explore DIVINE for spiritual guidance",
+                "Try ATHENA for brain tests",
+                "Visit DESTINY for matchmaking",
+                "Play games in LOKARIS"
+            ]
         }
         return suggestions_map.get(module, [])
 
 
-# Initialize chatbot
+# ─────────────────────────────────────────────
+# INITIALIZE CHATBOT
+# ─────────────────────────────────────────────
 chatbot = AnamcaraChatbot()
 
 
-# ============================================================
-# ORIGINAL PERSONA CHAT ENDPOINTS (unchanged)
-# ============================================================
+# ─────────────────────────────────────────────
+# ROUTES
+# ─────────────────────────────────────────────
+
 @router.post("/", response_model=ChatResponse)
 async def chat(chat_message: ChatMessage):
     try:
         client = get_client()
-        persona_result = client.table("personas").select("*").eq("id", chat_message.persona_id).execute()
+        persona_result = client.table("personas").select("*").eq(
+            "id", chat_message.persona_id
+        ).execute()
 
         if not persona_result.data:
             raise HTTPException(status_code=404, detail="Persona not found")
@@ -1016,11 +1263,20 @@ async def chat(chat_message: ChatMessage):
     except Exception as e:
         error_message = str(e)
         if "invalid_api_key" in error_message or "Incorrect API key" in error_message:
-            raise HTTPException(status_code=401, detail="Service configuration error. Please contact the administrator.")
+            raise HTTPException(
+                status_code=401,
+                detail="Service configuration error. Please contact the administrator."
+            )
         elif "429" in error_message or "rate limit" in error_message.lower():
-            raise HTTPException(status_code=429, detail="Service is currently overloaded. Please try again in a few moments.")
+            raise HTTPException(
+                status_code=429,
+                detail="Service is currently overloaded. Please try again in a few moments."
+            )
         print(f"Error in chat: {e}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again later.")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred. Please try again later."
+        )
 
 
 @router.get("/history/{thread_id}")
@@ -1037,7 +1293,10 @@ async def get_chat_history(thread_id: str, limit: int = 50):
 
     except Exception as e:
         print(f"Error getting chat history: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get chat history: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get chat history: {str(e)}"
+        )
 
 
 @router.get("/threads/{user_id}")
@@ -1068,7 +1327,10 @@ async def get_user_chat_threads(user_id: str):
 
     except Exception as e:
         print(f"Error getting chat threads: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get chat threads: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get chat threads: {str(e)}"
+        )
 
 
 @router.delete("/thread/{thread_id}")
@@ -1079,16 +1341,20 @@ async def delete_chat_thread(thread_id: str):
         return {"message": "Chat thread deleted successfully"}
     except Exception as e:
         print(f"Error deleting chat thread: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete chat thread: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete chat thread: {str(e)}"
+        )
 
 
-# ============================================================
-# ANAMGURU CHAT ENDPOINTS
-# ============================================================
 @router.post("/anamguru_chat", response_model=ChatResponseModules)
 async def anamguru_chat(request: ChatRequest):
-    """Main AnamGuru chat endpoint with personality layer + RAG routing + Supabase memory."""
-
+    """
+    Main AnamGuru chat endpoint.
+    - Detects Guru module from query (intent + topic + keyword scoring)
+    - Builds token-efficient system prompt with correct Llama 3.2 format
+    - Loads and saves conversation history via Supabase
+    """
     if not request.user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
 
@@ -1111,7 +1377,7 @@ async def anamguru_chat(request: ChatRequest):
         detected_module
     )
 
-    # Generate response with personality + knowledge
+    # Generate response
     response_text = await chatbot.generate_response(
         query=request.query,
         module=detected_module,
@@ -1171,5 +1437,9 @@ async def delete_conversation(user_id: str, module: str):
 
     success = await chatbot.db.delete_conversation(user_id, module)
     if success:
-        return {"message": "Conversation deleted successfully", "user_id": user_id, "module": module}
+        return {
+            "message": "Conversation deleted successfully",
+            "user_id": user_id,
+            "module": module
+        }
     raise HTTPException(status_code=500, detail="Failed to delete conversation")
