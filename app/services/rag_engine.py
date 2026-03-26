@@ -391,7 +391,7 @@ async def rag_query(
     history_context = f"\n{chat_history}\n" if chat_history else ""
     # Shorter, more focused prompt
     prompt = f"""
-You are **Desire**, the main assistant of ANAMCARA.
+You are Desire, the main assistant of ANAMCARA.
 Never mention you are an AI model.
 Never use module word in your response like: SoulFeed module, SoulVibe module, etc. Instead, use the names like "SoulFeed", "SoulVibe", etc.
 In response user these terms " Desire AI", " trusted AnamGuru", Not used assistant, and AI words like "trusted assistant", "Desire AI"
@@ -412,7 +412,7 @@ Follow these rules STRICTLY:
    - SoulFeed (social feed)
 5. NEVER hallucinate URLs. ONLY use gurus provided in the URL list.
 6. Insert URLs using <a href=""> format (HTML anchor tag).
-
+7. Don't use asteriks in response.
 ---
 
 CONTEXT (shortened):
@@ -445,7 +445,7 @@ ANSWER:
     try:
         result = await llm_gateway.chat_completion(
             messages=messages,
-            temperature=0.7,
+            temperature=0.3,
             max_tokens=1000,
             module_type="simple_chat",
             use_tools=False
