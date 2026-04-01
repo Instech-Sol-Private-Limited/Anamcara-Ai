@@ -30,7 +30,7 @@ Respond in a poetic tone, combining mystical symbolism and emotional depth. Make
         # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
         result = await llm_gateway.chat_completion(
             messages=messages,
-            temperature=0.7,
+            temperature=0.1,
             max_tokens=300,
             module_type="simple_chat",
             use_tools=False,
@@ -56,7 +56,7 @@ Respond in a poetic tone, combining mystical symbolism and emotional depth. Make
                         "stream": False,
                         "options": {
                             "num_predict": 300,
-                            "temperature": 0.7,
+                            "temperature": 0.1,
                         }
                     },
                 )

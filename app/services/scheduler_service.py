@@ -201,7 +201,7 @@ async def generate_mood_response(messages, persona):
     response = await client.chat.completions.create(
         model="gpt-4",
         messages=full_messages,
-        temperature=0.3,  # Slightly higher for warmth
+        temperature=0.1,  # Slightly higher for warmth
         max_tokens=100,   # Keep it brief
         presence_penalty=0.1,
         frequency_penalty=0.1

@@ -444,7 +444,7 @@ Output the JSON array NOW (no other text):"""
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
-            temperature=0.7,
+            temperature=0.1,
             max_tokens=4000
         )
         
@@ -548,7 +548,7 @@ Start output with '[' and end with ']'. Generate NOW:"""
         response = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            temperature=0.7,
+            temperature=0.1,
             max_tokens=4000
         )
         
@@ -661,7 +661,7 @@ Start output with '[' and end with ']'. Generate NOW:"""
                     "stream": False,
                     "options": {
                         "num_predict": 4000,
-                        "temperature": 0.7,
+                        "temperature": 0.1,
                         "top_p": 0.9,
                     }
                 }

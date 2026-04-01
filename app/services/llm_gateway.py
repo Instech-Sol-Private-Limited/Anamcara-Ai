@@ -57,7 +57,7 @@ class LLMGateway:
     async def chat_completion(
         self,
         messages: List[Dict],
-        temperature: float = 0.4,
+        temperature: float = 0.1,
         max_tokens: int = 2000,
         model: Optional[str] = None,
         module_type: str = "simple_chat",

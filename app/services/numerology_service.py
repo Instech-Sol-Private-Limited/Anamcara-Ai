@@ -217,7 +217,7 @@ Focus on making it feel uniquely tailored to them, not generic."""
             # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
             result = await llm_gateway.chat_completion(
                 messages=messages,
-                temperature=0.8,
+                temperature=0.1,
                 max_tokens=400,
                 module_type="numerology",
                 use_tools=False
@@ -245,7 +245,7 @@ Focus on making it feel uniquely tailored to them, not generic."""
                             "stream": False,
                             "options": {
                                 "num_predict": 400,
-                                "temperature": 0.8,
+                                "temperature": 0.1,
                             }
                         },
                     )

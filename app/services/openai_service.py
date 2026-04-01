@@ -31,7 +31,7 @@ Be warm, empathetic, and engage naturally in conversation. Respond as this perso
     # ========================================================================
     result = await llm_gateway.chat_completion(
         messages=full_messages,
-        temperature=0.4,
+        temperature=0.1,
         max_tokens=500,
         module_type="simple_chat",
         use_tools=False
@@ -74,7 +74,7 @@ Be warm, empathetic, and engage naturally in conversation. Respond as this perso
                     "stream": False,
                     "options": {
                         "num_predict": 500,
-                        "temperature": 0.4,
+                        "temperature": 0.1,
                     }
                 },
             )

@@ -79,7 +79,7 @@ def interpret_with_gpt(dream: str, keywords: List[str], matches: List[str]) -> s
         # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
         result = await llm_gateway.chat_completion(
             messages=messages,
-            temperature=0.7,
+            temperature=0.1,
             max_tokens=600,
             module_type="dream_analysis",
             use_tools=False
@@ -106,7 +106,7 @@ def interpret_with_gpt(dream: str, keywords: List[str], matches: List[str]) -> s
                         "stream": False,
                         "options": {
                             "num_predict": 600,
-                            "temperature": 0.7,
+                            "temperature": 0.1,
                         }
                     },
                 )
@@ -210,7 +210,7 @@ Make the response natural, specific, and personalized based on their actual prof
                 # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
                 result = await llm_gateway.chat_completion(
                     messages=messages,
-                    temperature=0.4,
+                    temperature=0.1,
                     max_tokens=1500,
                     module_type="dream_analysis",
                     use_tools=False
@@ -238,7 +238,7 @@ Make the response natural, specific, and personalized based on their actual prof
                                     "stream": False,
                                     "options": {
                                         "num_predict": 1500,
-                                        "temperature": 0.4,
+                                        "temperature": 0.1,
                                     }
                                 },
                             )

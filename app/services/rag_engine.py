@@ -185,7 +185,7 @@ URL_MAP = {
         ]
     },
     "help": {
-        "url": "https://anamcara.ai/help-and-policy",
+        "url": "https://anamcara.ai/help-and-policy-center",
         "keywords": [
             "help", "support", "policy", "faq", "issues",
             "questions", "guide", "contact"
@@ -445,7 +445,7 @@ ANSWER:
     try:
         result = await llm_gateway.chat_completion(
             messages=messages,
-            temperature=0.3,
+            temperature=0.1,
             max_tokens=1000,
             module_type="simple_chat",
             use_tools=False

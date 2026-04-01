@@ -211,7 +211,7 @@ Provide a comprehensive, insightful tarot reading that:
 5. Addresses both challenges and opportunities
 
 If dream context is provided, explore the connection between dream symbols and card meanings.
-
+Don't use asteriks in response.
 Write 4-6 paragraphs with depth and nuance."""
         
         messages = [
@@ -229,7 +229,7 @@ Write 4-6 paragraphs with depth and nuance."""
             # TIER 1 & 2: Try OpenAI → Groq (via llm_gateway)
             result = await llm_gateway.chat_completion(
                 messages=messages,
-                temperature=0.8,
+                temperature=0.1,
                 max_tokens=800,
                 module_type="tarot_reading",
                 use_tools=False
@@ -264,7 +264,7 @@ Write 4-6 paragraphs with depth and nuance."""
                             "stream": False,
                             "options": {
                                 "num_predict": 800,
-                                "temperature": 0.8,
+                                "temperature": 0.1,
                             }
                         },
                     )

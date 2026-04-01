@@ -961,7 +961,7 @@ If the user sends something vague, unclear, random, or meaningless (like "none",
 - Do NOT guess or make up an answer.
 
 RULE 4 — FORMATTING (STRICT):
-- Do NOT use asterisks (* or **) anywhere.
+- Strictly Do NOT use asterisks (* or **) in responses.
 - Do NOT use markdown bold or italic.
 - Do NOT use bullet points starting with *.
 - Use plain text with line breaks for structure.
@@ -1026,7 +1026,7 @@ Never reveal:
             # OpenAI first → if fails, Groq fallback
             gateway_result = await llm_gateway.chat_completion(
                 messages=messages,
-                temperature=0.2,
+                temperature=0.1,
                 max_tokens=1000,
                 module_type="simple_chat",
                 use_tools=False,
@@ -1067,7 +1067,7 @@ Never reveal:
                         "stream": False,
                         "options": {
                             "num_predict": 1000,
-                            "temperature": 0.2,
+                            "temperature": 0.1,
                         }
                     },
                 )
